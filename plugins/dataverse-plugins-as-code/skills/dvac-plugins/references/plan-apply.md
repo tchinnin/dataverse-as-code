@@ -68,7 +68,8 @@ Updates use `PATCH` with `If-Match: *`, so an update never creates a record by a
 - **A package's assemblies are never solution components.** Only the `pluginpackage` is one, and it carries its assemblies and plug-in types. Dataverse refuses `AddSolutionComponent` on such an assembly (`0x8004023b`, "part of a Plugin Package"), so `plan` never proposes it. If `apply` still gets that error, it shows a note and continues.
 - **For existing components**, `plan` reads `solutioncomponents` of the solution. A component outside it gets `~ update <kind> <name>  solution: "absent" → "<solution>"`, which `apply` runs as `AddSolutionComponent` with:
   - `AddRequiredComponents: false`
-  - `DoNotIncludeSubcomponents: true` (each child is added explicitly)
+  - `DoNotIncludeSubcomponents: false`. Dataverse accepts `true` only for a table (type 1); for any other type it fails with `0x80040216` ("DoNotIncludeSubcomponents can not be set to true on non Entity root"). Each child is still checked and added explicitly.
+  - `0x80040216` is a validation error here, so `apply` fails at once instead of retrying it as a metadata cache error.
 - **Component type codes.** Assembly 91, step 92 and image 93 are fixed. The codes for `pluginpackage`, `customapi`, `customapirequestparameter` and `customapiresponseproperty` are read from `solutioncomponentdefinitions`. When an environment doesn't know one of them, `plan` shows a note and skips that membership check.
 - **Plug-in types are not solution components.** They travel with their assembly.
 
