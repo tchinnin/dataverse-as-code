@@ -732,9 +732,10 @@ class Api:
             path = p + "?" + urllib.parse.quote(q, safe="=&$(),'/;")
         return f"{self.base}/{path}"
 
-    def request(self, method, path, body=None, headers=None, return_id=False):
+    def request(self, method, path, body=None, headers=None, return_id=False, fatal=()):
         """Send a Web API request. With return_id, return the MetadataId/GUID from the
-        OData-EntityId response header instead of the body (no read-after-write)."""
+        OData-EntityId response header instead of the body (no read-after-write).
+        Error codes in fatal fail at once, even when they are usually transient."""
         data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
         for attempt in range(6):
             req = urllib.request.Request(self._url(path), data=data, method=method,
@@ -760,7 +761,7 @@ class Api:
                 low = (msg or "").lower()
                 # "Not found" (404, e.g. 0x80060888) is an answer, never a transient error:
                 # retrying it would stall every plan on components that don't exist yet.
-                transient = e.code != 404 and (
+                transient = e.code != 404 and (code or "").lower() not in fatal and (
                     e.code == 429
                     or code in ("0x80072560", "0x80040216", "0x80060891")
                     or ("another" in low and ("customization" in low or "running" in low))

@@ -1,6 +1,6 @@
 {
   "name": "dataverse-metadata-as-code",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Dataverse schema as code: .dv.metadata.yaml model (global Choices, tables, columns, lookups, alternate keys), Terraform-style plan/apply to the dev environment (never destructive), planner agent and validation hook.",
   "author": {
     "name": "Théophile Chin-nin",

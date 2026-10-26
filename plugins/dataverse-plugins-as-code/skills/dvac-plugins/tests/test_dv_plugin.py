@@ -513,7 +513,7 @@ class FakeApi:
         self.rows = rows or {}
         self.strong = True
 
-    def request(self, method, path, body=None, headers=None, return_id=False):
+    def request(self, method, path, body=None, headers=None, return_id=False, fatal=()):
         self.calls.append((method, path, body, headers or {}))
         return f"10000000-0000-0000-0000-{len(self.calls):012d}" if return_id else {}
 
@@ -596,15 +596,27 @@ class TestApplier(unittest.TestCase):
         self.assertNotIn("isoptional", body["CustomAPIResponseProperties"][0])
         self.assertEqual(body["PluginTypeId@odata.bind"], "/plugintypes(t3)")
 
-    def test_membership_update_adds_component_without_subcomponents(self):
-        self.applier.run({"op": "update", "kind": "step", "unit": self.unit["name"], "name": "x",
-                          "id": "s9", "component": 92, "changes": {"solution": ["absent", "prfx_crm_Core"]}})
-        _m, path, body, _h = self.api.calls[-1]
-        self.assertEqual((path, body["ComponentType"], body["DoNotIncludeSubcomponents"], body["SolutionUniqueName"]),
-                         ("AddSolutionComponent", 92, True, "prfx_crm_Core"))
+    def test_membership_update_adds_component(self):
+        # Dataverse accepts DoNotIncludeSubcomponents only for a table (type 1): 0x80040216.
+        for kind in ("step", "image", "package"):
+            self.applier.run({"op": "update", "kind": kind, "unit": self.unit["name"], "name": "x",
+                              "id": "c9", "component": CTYPES[kind], "changes": {"solution": ["absent", "prfx_crm_Core"]}})
+            _m, path, body, _h = self.api.calls[-1]
+            self.assertEqual((path, body["ComponentType"], body["DoNotIncludeSubcomponents"], body["SolutionUniqueName"]),
+                             ("AddSolutionComponent", CTYPES[kind], False, "prfx_crm_Core"))
+
+    def test_add_component_validation_error_is_not_retried(self):
+        seen = []
+        def refuse(method, path, body=None, headers=None, return_id=False, fatal=()):
+            seen.append(fatal)
+            raise dv.ApiError(400, "0x80040216", "DoNotIncludeSubcomponents can not be set", path)
+        self.api.request = refuse
+        with self.assertRaises(dv.ApiError):
+            self.applier.add_component(self.unit, "s9", 92)
+        self.assertEqual(seen, [("0x80040216",)])
 
     def test_package_assembly_refused_by_the_server_is_a_note(self):
-        def refuse(method, path, body=None, headers=None, return_id=False):
+        def refuse(method, path, body=None, headers=None, return_id=False, fatal=()):
             raise dv.ApiError(405, "0x8004023B", "part of a Plugin Package", path)
         self.api.request = refuse
         self.applier.run({"op": "update", "kind": "assembly", "unit": self.unit["name"], "name": "x",
@@ -613,7 +625,7 @@ class TestApplier(unittest.TestCase):
         self.assertIn("a1", self.applier.notes[0])
 
     def test_other_membership_errors_still_fail(self):
-        def refuse(method, path, body=None, headers=None, return_id=False):
+        def refuse(method, path, body=None, headers=None, return_id=False, fatal=()):
             raise dv.ApiError(400, "0x80040203", "invalid", path)
         self.api.request = refuse
         with self.assertRaises(dv.ApiError):
@@ -747,6 +759,34 @@ class TestSharedBlock(unittest.TestCase):
             for a, b in self.ALLOWED.items():
                 ours = ours.replace(a, b)
             self.assertEqual(ours, inspect.getsource(getattr(meta, name)), f"{name} drifted from dv_metadata.py")
+
+
+class TestApiRetry(unittest.TestCase):
+    """0x80040216 is retried as a metadata cache error, unless the caller marks it fatal."""
+
+    def call(self, fatal):
+        import io, urllib.error, urllib.request
+        api = dv.Api({"url": "https://a-dev.crm4.dynamics.com", "tenant": None})
+        api.token = lambda: "t"
+        attempts, sleeps = [], []
+        def urlopen(req, timeout=None):
+            attempts.append(req.full_url)
+            body = json.dumps({"error": {"code": "0x80040216", "message": "boom"}}).encode()
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(body))
+        orig = urllib.request.urlopen, dv.time.sleep
+        urllib.request.urlopen, dv.time.sleep = urlopen, sleeps.append
+        try:
+            with self.assertRaises(dv.ApiError):
+                api.request("POST", "AddSolutionComponent", {}, fatal=fatal)
+        finally:
+            urllib.request.urlopen, dv.time.sleep = orig
+        return len(attempts), len(sleeps)
+
+    def test_fatal_code_fails_at_once(self):
+        self.assertEqual(self.call(("0x80040216",)), (1, 0))
+
+    def test_code_is_retried_by_default(self):
+        self.assertEqual(self.call(()), (6, 5))
 
 
 class TestHook(unittest.TestCase):
