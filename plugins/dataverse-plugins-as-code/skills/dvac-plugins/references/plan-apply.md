@@ -63,15 +63,15 @@ Updates use `PATCH` with `If-Match: *`, so an update never creates a record by a
 
 ## Solution membership
 
-- **On create**, every `POST` sends `MSCRM.SolutionUniqueName: <publisher.solution>`. This is the documented header name. Dataverse silently ignores an unknown header, and the component then lands outside the solution.
+- **On create**, every `POST` of a solution component sends `MSCRM.SolutionUniqueName: <publisher.solution>`. This is the documented header name. Dataverse silently ignores an unknown header, and the component then lands outside the solution.
 - **The server creates some components itself.** These are the parameters of a deep-inserted Custom API, and the assembly of a standalone assembly unit. The tool checks them right after the create and adds the missing ones.
 - **A package's assemblies are never solution components.** Only the `pluginpackage` is one, and it carries its assemblies and plug-in types. Dataverse refuses `AddSolutionComponent` on such an assembly (`0x8004023b`, "part of a Plugin Package"), so `plan` never proposes it. If `apply` still gets that error, it shows a note and continues.
 - **For existing components**, `plan` reads `solutioncomponents` of the solution. A component outside it gets `~ update <kind> <name>  solution: "absent" → "<solution>"`, which `apply` runs as `AddSolutionComponent` with:
   - `AddRequiredComponents: false`
   - `DoNotIncludeSubcomponents: false`. Dataverse accepts `true` only for a table (type 1); for any other type it fails with `0x80040216` ("DoNotIncludeSubcomponents can not be set to true on non Entity root"). Each child is still checked and added explicitly.
   - `0x80040216` is a validation error here, so `apply` fails at once instead of retrying it as a metadata cache error.
-- **Component type codes.** Assembly 91, step 92 and image 93 are fixed. The codes for `pluginpackage`, `customapi`, `customapirequestparameter` and `customapiresponseproperty` are read from `solutioncomponentdefinitions`. When an environment doesn't know one of them, `plan` shows a note and skips that membership check.
-- **Plug-in types are not solution components.** They travel with their assembly.
+- **Component type codes.** Assembly 91 and step 92 are fixed. The codes for `pluginpackage`, `customapi`, `customapirequestparameter` and `customapiresponseproperty` are read from `solutioncomponentdefinitions`. When an environment doesn't know one of them, `plan` shows a note and skips that membership check.
+- **Plug-in types and step images are not solution components.** They travel with their assembly and their step: the tool creates them without the header and never adds them to the solution.
 
 ## Change detection for the package
 
@@ -141,5 +141,5 @@ These behaviors are documented by Microsoft only partly. Check them on the first
 - **Assembly create.** Does `POST pluginassemblies` with `name`, `content`, `isolationmode` and `sourcetype` fill version, culture and public key token from the content?
 - **Package naming.** Does a package's unique name have to carry the publisher prefix?
 - **Changing a step's message or table.** Can an existing step's `sdkmessageid` or `sdkmessagefilterid` be changed? If not, report the change as blocked.
-- **Solution header on implicit children.** Does `MSCRM.SolutionUniqueName` cover the server-created assemblies, the images of a step and deep-inserted parameters? Either way, the explicit check covers them.
+- **Solution header on implicit children.** Does `MSCRM.SolutionUniqueName` cover the server-created assemblies and deep-inserted parameters? Either way, the explicit check covers them.
 - **Push and membership.** Does `pac plugin push` keep the package's solution membership?

@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.1"
+  version: "2.0.2"
 ---
 
 ## Official skill
@@ -129,9 +129,10 @@ custom_apis:
    - The tool always passes the dev URL to `pac`, whatever environment the active pac profile points to.
    - The package version is **not** a deployment signal. Dataverse does not use it to decide an update, and a package's version cannot be changed after creation.
 3. **Solution membership.** Every component lands in `publisher.solution`:
-   - **On create**, the request carries the `MSCRM.SolutionUniqueName` header. This covers the package or assembly, steps, images, the Custom API, its parameters and its response properties.
+   - **On create**, the request carries the `MSCRM.SolutionUniqueName` header. This covers the package or assembly, steps, the Custom API, its parameters and its response properties.
    - **An existing component outside the solution** is planned as `~ update … solution: absent → <solution>` and added with `AddSolutionComponent`. A step registered through the Plugin Registration Tool is a typical case.
    - **A package unit** adds the package, never its assemblies: Dataverse refuses them, and the package carries them. An assembly unit adds the assembly.
+   - **Step images are not solution components.** They travel with their step and are never added to the solution.
 
 The phase order and the exact payloads are in [`references/plan-apply.md`](references/plan-apply.md).
 
