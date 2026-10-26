@@ -1,0 +1,5 @@
+# dvac-plugins — Python dependencies of dv_plugin.py
+# Install in a venv:  pip install -r <this file>
+# Authentication uses the Azure CLI (az login) and the PAC CLI — no Python auth package needed.
+pyyaml>=6.0
+jsonschema>=4.0

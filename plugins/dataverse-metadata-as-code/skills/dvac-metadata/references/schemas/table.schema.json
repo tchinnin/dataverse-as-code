@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataverse table .dv.metadata.yaml",
+  "description": "One table per file: tables/<key>.dv.metadata.yaml.",
+  "type": "object",
+  "required": ["key", "label", "columns"],
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "Table Schema Name — {prefix}_[{project_code}_]{TableName}, English, singular. Equals the file name without extension.",
+      "pattern": "^[a-z][a-z0-9]{1,7}_([a-z0-9]+_)?[A-Za-z][A-Za-z0-9]*$"
+    },
+    "label": { "$ref": "#/definitions/localizedText", "description": "Display Name (singular)." },
+    "label_plural": { "$ref": "#/definitions/localizedText", "description": "Plural Display Name. Defaults to label + 's' at creation." },
+    "description": { "$ref": "#/definitions/localizedText" },
+    "ownership": {
+      "type": "string",
+      "enum": ["user", "org"],
+      "default": "user",
+      "description": "Record ownership. Cannot be changed after creation."
+    },
+    "table_type": {
+      "type": "string",
+      "enum": ["standard", "activity", "elastic"],
+      "default": "standard",
+      "description": "Cannot be changed after creation."
+    },
+    "auditing": { "type": "boolean", "default": false },
+    "columns": {
+      "type": "object",
+      "description": "Columns keyed by Schema Name: {prefix}_{ColumnName} — never the project code.",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z][A-Za-z0-9]*$" },
+      "additionalProperties": { "$ref": "#/definitions/column" }
+    },
+    "keys": {
+      "type": "array",
+      "description": "Alternate keys (uniqueness rules). Index is built asynchronously by Dataverse.",
+      "items": { "$ref": "#/definitions/key" }
+    }
+  },
+  "definitions": {
+    "localizedText": {
+      "description": "A string in the base language, or a map {LCID: text}, e.g. {1033: Customer, 1036: Client}.",
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[0-9]{4,5}$" },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      ]
+    },
+    "cascadeAction": {
+      "type": "string",
+      "enum": ["none", "all", "active", "userowned"],
+      "description": "Cascade None | Cascade All | Cascade Active | Cascade User-owned."
+    },
+    "key": {
+      "type": "object",
+      "required": ["schema_name", "columns"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z0-9_]+$"
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "label": { "$ref": "#/definitions/localizedText" }
+      }
+    },
+    "column": {
+      "type": "object",
+      "required": ["label", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "#/definitions/localizedText" },
+        "type": {
+          "type": "string",
+          "description": "Calculated, rollup and formula columns are out of scope.",
+          "enum": [
+            "text", "multiline", "email", "url", "phone",
+            "integer", "decimal", "money",
+            "boolean",
+            "date", "datetime",
+            "choice", "multichoice",
+            "lookup",
+            "file", "image",
+            "autonumber"
+          ]
+        },
+        "description": { "$ref": "#/definitions/localizedText" },
+        "required": { "type": "boolean", "description": "Shortcut for required_level: required." },
+        "required_level": { "type": "string", "enum": ["none", "recommended", "required"] },
+        "searchable": { "type": "boolean" },
+        "auditing": { "type": "boolean" },
+        "primary": { "type": "boolean", "description": "Primary name column — exactly one per table, type text or autonumber." },
+        "default": { "description": "Default value (boolean, choice)." },
+        "max_length": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "precision": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "choice": { "type": "string", "description": "Schema Name of a global Choice (choice, multichoice)." },
+        "target": { "type": "string", "description": "Target table logical/Schema Name (lookup)." },
+        "cascade": {
+          "description": "Relationship behavior (lookup): a preset, or a custom mapping per action (omitted actions = none).",
+          "oneOf": [
+            { "type": "string", "enum": ["parental", "referential", "restrict"] },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["delete"],
+              "properties": {
+                "delete": { "type": "string", "enum": ["all", "removelink", "restrict"] },
+                "assign": { "$ref": "#/definitions/cascadeAction" },
+                "share": { "$ref": "#/definitions/cascadeAction" },
+                "unshare": { "$ref": "#/definitions/cascadeAction" },
+                "reparent": { "$ref": "#/definitions/cascadeAction" }
+              }
+            }
+          ]
+        },
+        "behavior": {
+          "type": "string",
+          "enum": ["userlocal", "dateonly", "timezoneindependent"],
+          "description": "DateTime behaviour (datetime)."
+        },
+        "display": {
+          "type": "string",
+          "enum": ["date", "datetime"],
+          "description": "Display format (datetime): date only or date and time, independent of behavior."
+        },
+        "precision_source": {
+          "type": "string",
+          "enum": ["fixed", "pricing", "currency"],
+          "description": "Money precision: fixed (precision 0-4), pricing (organization pricing precision), currency (record currency, default)."
+        },
+        "true_label": { "$ref": "#/definitions/localizedText", "description": "Label of the true option (boolean); defaults to Yes in the locale." },
+        "false_label": { "$ref": "#/definitions/localizedText", "description": "Label of the false option (boolean); defaults to No in the locale." },
+        "primary_image": { "const": true, "description": "Primary image of the table (image) — at most one per table." },
+        "format": { "type": "string", "description": "AutoNumber format, e.g. PRJ-{SEQNUM:5}." },
+        "max_size_kb": { "type": "integer", "minimum": 1, "description": "Max size in KB (file, image)." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "enum": ["choice", "multichoice"] } } },
+          "then": { "required": ["choice"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "lookup" } } },
+          "then": { "required": ["target", "cascade"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "autonumber" } } },
+          "then": { "required": ["format"] }
+        }
+      ]
+    }
+  }
+}
