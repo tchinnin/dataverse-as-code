@@ -67,6 +67,8 @@ An assembly is registered in sandbox isolation, stored in the database. The tool
 
 Secure configuration is not part of the model. A step's secure configuration is left untouched.
 
+**`export` and step names.** `export` writes `name` only when the server name differs from the default `<plugin>: <message> of <table>`. It writes `async_auto_delete` only when it is `true` on an async step. Because the name is the identity, a hand-written YAML whose step names don't match the server plans a `- delete` plus a `+ create` for each step. To adopt existing steps, start from `export`, or copy the exact server names.
+
 ## Image
 
 | Key | Default | Notes |

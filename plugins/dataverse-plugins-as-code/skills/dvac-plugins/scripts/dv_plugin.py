@@ -1018,10 +1018,8 @@ def diff(units, server):
                         changes={"version": [srv["version"], art["version"]]})
             else:
                 notes.append(f"{unit['name']}: server content not readable — content changes are not detected")
+            # A package's assemblies are not solution components: the package carries them.
             membership(unit, kind, unit["name"], srv["id"])
-            if kind == "package":
-                for asm in srv["assemblies"]:
-                    membership(unit, "assembly", asm["name"] or asm["id"], asm["id"])
 
         # ── Plug-in types ────────────────────────────────────────────────────
         referenced = [s["plugin"] for s in unit["steps"]] + \
@@ -1415,6 +1413,7 @@ class Applier:
         self.state = server["units"]  # updated with the ids of what this run creates
         self.ctypes = server["component_types"]
         self.solution_ids = {name: s["id"] for name, s in server["solutions"].items()}
+        self.notes = []
 
     # -- helpers --------------------------------------------------------------
     def unit(self, a):
@@ -1434,14 +1433,21 @@ class Applier:
         self.api.request("PATCH", path, body, {"If-Match": "*"})
 
     def add_component(self, unit, rid, code):
-        self.api.request("POST", "AddSolutionComponent", {
-            "ComponentId": rid, "ComponentType": code, "SolutionUniqueName": unit["solution"],
-            "AddRequiredComponents": False, "DoNotIncludeSubcomponents": True,
-        })
+        try:
+            self.api.request("POST", "AddSolutionComponent", {
+                "ComponentId": rid, "ComponentType": code, "SolutionUniqueName": unit["solution"],
+                "AddRequiredComponents": False, "DoNotIncludeSubcomponents": True,
+            })
+        except ApiError as e:
+            # The assembly of a plug-in package cannot be a solution component.
+            if (e.code or "").lower() != "0x8004023b":
+                raise
+            self.notes.append(f"{rid}: part of a plug-in package — the package carries it into the solution")
 
     def ensure_members(self, unit, kind, ids):
-        """Add components the server created implicitly (package assemblies, deep-inserted
-        Custom API parameters) to the solution when the header did not."""
+        """Add components the server created implicitly (the assembly of a standalone
+        assembly unit, deep-inserted Custom API parameters) to the solution when the
+        header did not."""
         code = self.ctypes.get(kind)
         if code is None or not ids:
             return
@@ -1454,7 +1460,8 @@ class Applier:
         s = self.state[unit["name"].lower()]
         s["assemblies"] = read_assemblies(self.api, unit["kind"], s["id"], unit["name"])
         s["types"] = read_types(self.api, s["assemblies"])
-        self.ensure_members(unit, "assembly", [x["id"] for x in s["assemblies"]])
+        if unit["kind"] == "assembly":
+            self.ensure_members(unit, "assembly", [x["id"] for x in s["assemblies"]])
 
     def type_id(self, unit, typename):
         tid = self.state[unit["name"].lower()]["types"].get(typename)
@@ -1725,6 +1732,8 @@ def cmd_apply(args):
             failure = e
             print(f"  {red('✗')} {a['op']:<6} {a['kind']:<10} {a['name']}\n      {e}", flush=True)
             break
+    for note in applier.notes:
+        print(yellow(f"  note: {note}"))
     print(f"\n{done}/{len(fresh['actions'])} change(s) applied.")
     if failure:
         print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))

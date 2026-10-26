@@ -474,11 +474,23 @@ class TestSolutionMembership(unittest.TestCase):
             self.members.discard(rid.lower())
         plan = dv.diff(self.units, self.server)
         self.assertEqual([a["kind"] for a in plan["actions"]],
-                         ["package", "assembly", "customapi", "request", "response", "step", "image"])
+                         ["package", "customapi", "request", "response", "step", "image"])
         for a in plan["actions"]:
             self.assertEqual(a["changes"], {"solution": ["absent", "prfx_crm_Core"]})
             self.assertEqual(a["component"], CTYPES[a["kind"]])
             self.assertEqual(a["id"], self.ids[a["kind"]])
+
+    def test_package_assembly_is_never_added(self):
+        # Dataverse refuses it (0x8004023b): the package carries its assemblies.
+        self.members.discard(self.ids["assembly"].lower())
+        self.assertEqual(dv.diff(self.units, self.server)["actions"], [])
+
+    def test_standalone_assembly_is_added(self):
+        asm = self.server["units"]["legacy.plugins"]
+        self.members.discard(asm["id"].lower())
+        plan = dv.diff(self.units, self.server)
+        self.assertEqual(ops(plan), [("update", "assembly", "Legacy.Plugins")])
+        self.assertEqual((plan["actions"][0]["component"], plan["actions"][0]["id"]), (91, asm["id"]))
 
     def test_membership_runs_after_other_changes(self):
         self.members.discard(self.ids["package"].lower())
@@ -551,9 +563,9 @@ class TestApplier(unittest.TestCase):
         created = {p: h.get(dv.SOLUTION_HEADER) for p, h in self.api.posts() if p != "AddSolutionComponent"}
         for entity_set in ("pluginpackages", "customapis", "sdkmessageprocessingsteps", "sdkmessageprocessingstepimages"):
             self.assertEqual(created[entity_set], "prfx_crm_Core", entity_set)
-        # server-created assemblies and deep-inserted parameters are added explicitly
+        # deep-inserted parameters are added explicitly; the package's assemblies never are
         added = [b["ComponentType"] for m, p, b, _ in self.api.calls if p == "AddSolutionComponent"]
-        self.assertEqual(sorted(added), sorted([91, 10028, 10029]))
+        self.assertEqual(sorted(added), sorted([10028, 10029]))
         self.assertIn("id: 10000000-0000-0000-0000-", (self.tmp / PACKAGE_SAMPLE).read_text(encoding="utf-8"))
 
     def test_package_upload_is_base64_of_the_nupkg(self):
@@ -590,6 +602,23 @@ class TestApplier(unittest.TestCase):
         _m, path, body, _h = self.api.calls[-1]
         self.assertEqual((path, body["ComponentType"], body["DoNotIncludeSubcomponents"], body["SolutionUniqueName"]),
                          ("AddSolutionComponent", 92, True, "prfx_crm_Core"))
+
+    def test_package_assembly_refused_by_the_server_is_a_note(self):
+        def refuse(method, path, body=None, headers=None, return_id=False):
+            raise dv.ApiError(405, "0x8004023B", "part of a Plugin Package", path)
+        self.api.request = refuse
+        self.applier.run({"op": "update", "kind": "assembly", "unit": self.unit["name"], "name": "x",
+                          "id": "a1", "component": 91, "changes": {"solution": ["absent", "prfx_crm_Core"]}})
+        self.assertEqual(len(self.applier.notes), 1)
+        self.assertIn("a1", self.applier.notes[0])
+
+    def test_other_membership_errors_still_fail(self):
+        def refuse(method, path, body=None, headers=None, return_id=False):
+            raise dv.ApiError(400, "0x80040203", "invalid", path)
+        self.api.request = refuse
+        with self.assertRaises(dv.ApiError):
+            self.applier.run({"op": "update", "kind": "step", "unit": self.unit["name"], "name": "x",
+                              "id": "s9", "component": 92, "changes": {"solution": ["absent", "prfx_crm_Core"]}})
 
     def test_delete_and_disable(self):
         self.applier.run({"op": "delete", "kind": "step", "unit": self.unit["name"], "name": "x", "id": "s9"})
