@@ -84,7 +84,7 @@
         "label": { "$ref": "#/definitions/localizedText" },
         "type": {
           "type": "string",
-          "description": "Calculated, rollup and formula columns are out of scope.",
+          "description": "formula = Power Fx formula column (see result_type). Calculated and rollup columns are out of scope.",
           "enum": [
             "text", "multiline", "email", "url", "phone",
             "integer", "decimal", "money",
@@ -93,8 +93,20 @@
             "choice", "multichoice",
             "lookup",
             "file", "image",
-            "autonumber"
+            "autonumber",
+            "formula"
           ]
+        },
+        "result_type": {
+          "type": "string",
+          "enum": ["decimal", "integer", "text", "boolean", "datetime", "date", "choice"],
+          "description": "Type of the value a formula column returns (formula). Its attributes follow the rules of that type. Cannot be changed after creation."
+        },
+        "formula": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Power Fx formula (formula). References columns of the same table by logical name (lowercase)."
         },
         "description": { "$ref": "#/definitions/localizedText" },
         "required": { "type": "boolean", "description": "Shortcut for required_level: required." },
@@ -160,6 +172,23 @@
         {
           "if": { "properties": { "type": { "const": "autonumber" } } },
           "then": { "required": ["format"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "formula" } } },
+          "then": {
+            "required": ["formula", "result_type"],
+            "not": { "anyOf": [
+              { "required": ["primary"] }, { "required": ["default"] },
+              { "required": ["required"] }, { "required": ["required_level"] }
+            ] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "formula" }, "result_type": { "const": "choice" } },
+            "required": ["type", "result_type"]
+          },
+          "then": { "required": ["choice"] }
         }
       ]
     }

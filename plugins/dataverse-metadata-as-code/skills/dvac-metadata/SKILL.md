@@ -1,11 +1,12 @@
 ---
 name: dvac-metadata
 description: >
-  Dataverse metadata as code: global Choices, tables, columns, lookups and alternate
-  keys are described in dataverse/metadata/*.dv.metadata.yaml and reconciled with the
-  dev environment through a Terraform-style plan → confirm → apply loop that never
-  deletes. Use when the user wants to create or change Dataverse tables, columns,
-  Choices, lookups or keys, write or fix .dv.metadata.yaml files, preview schema
+  Dataverse metadata as code: global Choices, tables, columns (including Power Fx
+  formula columns), lookups and alternate keys are described in
+  dataverse/metadata/*.dv.metadata.yaml and reconciled with the dev environment
+  through a Terraform-style plan → confirm → apply loop that never deletes. Use
+  when the user wants to create or change Dataverse tables, columns, formula
+  columns, Choices, lookups or keys, write or fix .dv.metadata.yaml files, preview schema
   changes (plan), apply the model, or detect drift between the model and the
   environment.
 license: MIT
@@ -15,7 +16,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<schema change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 ## Official skill
@@ -120,7 +121,7 @@ locale: en
 
 ## Common issue: blocked changes
 
-A column type change, a change of bound Choice, an ownership change or a primary-column change cannot be applied in place. Either revert the YAML to match the server, or plan a new column plus a data migration. The full list and the alternatives are in [`references/plan-apply.md`](references/plan-apply.md).
+A column type change (including a formula's `result_type`), a change of bound Choice, an ownership change or a primary-column change cannot be applied in place. Either revert the YAML to match the server, or plan a new column plus a data migration. The full list and the alternatives are in [`references/plan-apply.md`](references/plan-apply.md).
 
 ## Common issue: changes made in the maker portal
 
@@ -142,6 +143,6 @@ A change made directly in the environment shows up as `~ update` (the model woul
 - Running a schema change end to end → agent `dvac-metadata-planner`
 - Plug-in registrations as code → `dvac-plugins`
 - Schema design conventions and reviews → the project's best practices
-- Forms, views, N:N relationships, calculated/rollup/formula columns → `dataverse:dv-metadata` (outside this model)
+- Forms, views, N:N relationships, calculated/rollup columns → `dataverse:dv-metadata` (outside this model)
 - Solution creation, export, pull-to-repo → `dataverse:dv-solution`
 - Promotion to UAT/prod → the project's ALM pipeline

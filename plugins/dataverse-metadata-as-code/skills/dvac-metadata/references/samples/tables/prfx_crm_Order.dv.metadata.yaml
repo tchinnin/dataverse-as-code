@@ -36,6 +36,14 @@ columns:
     max: 1000000000
     precision: 2
 
+  prfx_AmountWithTax:
+    label: Amount Incl. Tax
+    type: formula                    # Power Fx formula column — Dataverse computes the value
+    result_type: decimal             # attributes below follow the decimal rules
+    formula: "If(prfx_amount > 0, prfx_amount * 1.2)"   # same-table columns, logical names
+    precision: 2
+    description: Amount with 20% tax; empty when the amount is 0 or missing.
+
   prfx_OrderedOn:
     label: Ordered On
     type: datetime

@@ -40,6 +40,7 @@ Summary: 3 to create, 2 to update, 1 blocked, 2 unmanaged.
 | table | new table + primary column, created directly in the solution (`MSCRM.SolutionUniqueName` header) | `label`, `label_plural`, `description`, `auditing`; added to the solution if missing |
 | column | new column | `label`, `description`, `required_level`, `auditing`, `searchable`, `max_length`, `min`, `max`, `precision`, `precision_source`, `format`, `default`, `display`, `true_label` / `false_label` (`UpdateOptionValue`), `primary_image` (only to `true`), `behavior` (once, from `userlocal`) |
 | lookup | new N:1 relationship + lookup column | `cascade.<action>` for delete, assign, share, unshare and reparent — only the changed actions are written; Merge and RollupView are kept as on the server. Label and the other fields go through `column` |
+| formula | new formula column (`SourceType: 3` + `FormulaDefinition`), created directly in the solution; the column is then re-read until Dataverse has accepted the formula | `formula`, `label`, `description`, `searchable`, `auditing` and the result-type attributes (`max_length`, `min`, `max`, `precision`, `display`) |
 | key | new alternate key | — |
 
 Labels are written with `MSCRM.MergeLabels: true`, so translations in other languages are kept. A label change lists only the languages that differ (e.g. `label: 1036="Ordre" → 1036="Commande"`). Only the components the run touched are published (`PublishXml`).
@@ -59,13 +60,14 @@ A blocked change is never run. The plan exits with code 1, and `apply` refuses a
 | Table `ownership` / `table_type` | Fixed at creation | New table + migration |
 | Primary column | Fixed at creation | Revert the YAML |
 | Alternate key `columns` | Keys are immutable | Add a new key; remove the old one manually |
+| Formula `result_type`, or switching between a simple column and a formula column | The column type is fixed at creation | Revert the YAML, or add a new column |
 
 ## Unmanaged
 
 Scope is the components whose names start with `publisher.scope` (default `{prefix}_`):
 
 - global Choices and custom tables in that scope
-- `{prefix}_` custom columns on modeled tables, excluding helper columns such as `…name` and `…_base`
+- `{prefix}_` custom columns on modeled tables, excluding helper columns such as `…name` and `…_base`. Formula, calculated and rollup columns show their source (e.g. `formula DecimalType`).
 - alternate keys on modeled tables
 - option values of modeled Choices
 
@@ -77,7 +79,8 @@ The tool only reports these, so the decision stays a human one. Either add the i
 
 ## Apply behavior
 
-- Runs the actions in phase order: Choices → options → tables → columns → lookups → keys.
+- Runs the actions in phase order: Choices → options → tables → columns → lookups → formula columns → keys. A formula column that reads another one comes after it.
+- Dataverse validates a formula after the write returns. After creating or updating a formula column, `apply` re-reads it (up to about a minute) and fails explicitly if `SourceType` isn't 3 or the stored `FormulaDefinition` differs from the model. Fix the formula, re-plan, and apply again.
 - Stops at the **first failure**, then publishes whatever succeeded. Fix the cause, re-plan, and apply again. Because the plan is a diff, the next plan contains only what's left to do.
 - Retries transient errors automatically: lock contention `0x80072560`, metadata cache `0x80040216` / `0x80060891`, and HTTP 429. A 404 is never retried: "not found" is an answer. Set `DV_METADATA_DEBUG=1` to print every Web API call with its duration.
 - Every request made during `apply`, and the post-apply check, sends `Consistency: Strong`, so reads see the changes just written rather than the metadata cache.
