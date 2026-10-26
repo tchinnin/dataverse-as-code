@@ -91,7 +91,7 @@ class TestValidate(unittest.TestCase):
 
     def test_naming_conventions_are_not_enforced(self):
         """Design conventions belong to the user's best practices, not to the validator."""
-        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Amount:", "  prfx_crm_SourceId:")
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_HasPriority:", "  prfx_crm_SourceId:")
         report = dv.validate_model(self.model)
         self.assertEqual(report.errors, [])
         self.assertFalse(any("SourceId" in w for w in report.warnings), report.warnings)
@@ -343,6 +343,181 @@ class TestColumnOptions(unittest.TestCase):
                                "changes": {"false_label": ["No", "Normal"]}})
         self.assertEqual([(m, p) for m, p, _ in calls], [("POST", "UpdateOptionValue")])
         self.assertEqual(calls[0][2]["Value"], 0)
+
+
+class TestFormula(unittest.TestCase):
+    """Power Fx formula columns (SourceType 3)."""
+    ORDER = "tables/prfx_crm_Order.dv.metadata.yaml"
+    FORMULA = '    formula: "If(prfx_amount > 0, prfx_amount * 1.2)"'
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.dir = self.tmp / "dataverse" / "metadata"
+        shutil.copytree(SAMPLES, self.dir)
+        self.model = load_samples()
+        self.server = mirror_server(self.model)
+        self.cols = next(t for t in self.model["tables"] if t["key"] == "prfx_crm_Order")["columns"]
+        self.srv_cols = self.server["tables"]["prfx_crm_order"]["columns"]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def edit(self, old, new):
+        p = self.dir / self.ORDER
+        text = p.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    def errors(self):
+        return "\n".join(dv.validate_model(self.dir).errors)
+
+    # -- helpers --------------------------------------------------------------
+    def test_normalise_collapses_whitespace_outside_strings(self):
+        self.assertEqual(dv.normalise_formula('=If(prfx_a > 0,\n   prfx_b  &  "x  y")\n'),
+                         'If(prfx_a > 0, prfx_b & "x  y")')
+
+    def test_refs_skip_strings_and_related_columns(self):
+        refs = dv.formula_refs('If("prfx_s" = prfx_Parent.prfx_name, prfx_a, \'prfx_q\')')
+        self.assertEqual(refs, ["If", "prfx_Parent", "prfx_a"])
+
+    # -- validation -----------------------------------------------------------
+    def test_unknown_column_in_formula(self):
+        self.edit(self.FORMULA, '    formula: "prfx_amount * prfx_rate"')
+        self.assertIn("references 'prfx_rate', which is not a column of the table", self.errors())
+
+    def test_result_type_is_required(self):
+        self.edit("    result_type: decimal             # attributes below follow the decimal rules\n", "")
+        self.assertIn("needs 'result_type'", self.errors())
+
+    def test_empty_formula(self):
+        self.edit(self.FORMULA, '    formula: "  "')
+        self.assertIn("non-empty 'formula'", self.errors())
+
+    def test_required_default_primary_are_refused(self):
+        for attr in ("required: true", "default: 1", "primary: true", "required_level: recommended"):
+            with self.subTest(attr=attr):
+                shutil.rmtree(self.dir)
+                shutil.copytree(SAMPLES, self.dir)
+                self.edit(self.FORMULA, self.FORMULA + "\n    " + attr)
+                self.assertIn(f"'{attr.split(':')[0]}' does not apply to a formula column", self.errors())
+
+    def test_money_result_is_refused(self):
+        self.edit("    result_type: decimal", "    result_type: money")
+        self.assertIn("result_type 'money' is not supported", self.errors())
+
+    def test_attributes_follow_the_result_type(self):
+        self.edit("    result_type: decimal", "    result_type: text")
+        self.assertIn("'precision' does not apply to type 'text'", self.errors())
+
+    def test_logical_names_must_be_lowercase(self):
+        self.edit(self.FORMULA, '    formula: "prfx_Amount * 1.2"')
+        self.assertIn("write 'prfx_amount'", self.errors())
+
+    def test_self_reference_and_cycle(self):
+        self.edit(self.FORMULA, '    formula: "prfx_amountwithtax * 2"')
+        self.assertIn("references its own column", self.errors())
+        shutil.rmtree(self.dir)
+        shutil.copytree(SAMPLES, self.dir)
+        self.edit(self.FORMULA, '    formula: "prfx_net * 2"\n  prfx_Net:\n    label: Net\n'
+                                '    type: formula\n    result_type: decimal\n    formula: "prfx_amountwithtax / 2"')
+        self.assertIn("in a cycle", self.errors())
+
+    def test_formula_only_on_formula_type(self):
+        self.edit("    behavior: userlocal", "    behavior: userlocal\n    formula: x")
+        self.assertIn("apply only to type 'formula'", self.errors())
+
+    # -- plan -----------------------------------------------------------------
+    def test_create(self):
+        del self.srv_cols["prfx_amountwithtax"]
+        plan = dv.diff(self.model, self.server)
+        self.assertEqual([(a["op"], a["kind"], a["name"], a["detail"]) for a in plan["actions"]],
+                         [("create", "formula", "prfx_AmountWithTax",
+                           "decimal = If(prfx_amount > 0, prfx_amount * 1.2)")])
+
+    def test_formula_change_is_an_update(self):
+        self.srv_cols["prfx_amountwithtax"]["formula"] = "prfx_amount * 1.1"
+        self.srv_cols["prfx_amountwithtax"]["label"] = {1033: "Gross"}
+        plan = dv.diff(self.model, self.server)
+        a = plan["actions"][0]
+        self.assertEqual((a["op"], a["kind"], a["type"]), ("update", "formula", "decimal"))
+        self.assertEqual(a["changes"]["formula"], ["prfx_amount * 1.1", "If(prfx_amount > 0, prfx_amount * 1.2)"])
+        self.assertIn("label", a["changes"])
+
+    def test_whitespace_difference_is_no_change(self):
+        self.cols["prfx_AmountWithTax"]["formula"] = "If(prfx_amount > 0,\n    prfx_amount * 1.2)\n"
+        self.assertEqual(dv.diff(self.model, self.server)["actions"], [])
+
+    def test_result_type_change_is_blocked(self):
+        self.srv_cols["prfx_amountwithtax"]["result_type"] = "integer"
+        plan = dv.diff(self.model, self.server)
+        self.assertEqual(plan["actions"], [])
+        self.assertEqual([(b["kind"], b["field"]) for b in plan["blocked"]], [("formula", "result_type")])
+
+    def test_simple_to_formula_is_blocked_once(self):
+        self.srv_cols["prfx_amountwithtax"] = {**self.srv_cols["prfx_amountwithtax"], "type": "decimal"}
+        plan = dv.diff(self.model, self.server)
+        self.assertEqual([b["field"] for b in plan["blocked"]], ["type"])
+
+    def test_server_formula_is_read_and_unmanaged_when_absent(self):
+        attr = {"AttributeTypeName": {"Value": "DecimalType"}, "SourceType": 3, "RequiredLevel": {"Value": "None"}}
+        col = dv.normalise_column(attr, {"Precision": 2, "FormulaDefinition": "If(prfx_amount > 0,\r\n prfx_amount * 1.2)"}, 1033)
+        self.assertEqual((col["type"], col["result_type"], col["formula"]),
+                         ("formula", "decimal", "If(prfx_amount > 0, prfx_amount * 1.2)"))
+        self.assertNotIn("required_level", col)
+
+    def test_apply_order(self):
+        # Declared before the formula it reads: it must still be created after it.
+        others = dict(self.cols)
+        self.cols.clear()
+        self.cols["prfx_Net"] = {"label": "Net", "type": "formula", "result_type": "decimal",
+                                 "formula": "prfx_amountwithtax / 1.2"}
+        self.cols.update(others)
+        empty = {"components": set(), "choices": {}, "tables": {}, "scope_choices": [], "scope_tables": []}
+        actions = [a for a in dv.diff(self.model, empty)["actions"] if a.get("table") == "prfx_crm_Order"]
+        kinds = [a["kind"] for a in actions]
+        self.assertEqual(kinds, sorted(kinds, key=lambda k: dv.PHASE[k]))
+        self.assertLess(kinds.index("lookup"), kinds.index("formula"))
+        self.assertEqual([a["name"] for a in actions if a["kind"] == "formula"],
+                         ["prfx_AmountWithTax", "prfx_Net"])
+        all_kinds = [a["kind"] for a in dv.diff(self.model, empty)["actions"]]
+        self.assertLess(max(i for i, k in enumerate(all_kinds) if k == "formula"), all_kinds.index("key"))
+
+    # -- apply ----------------------------------------------------------------
+    def test_payload(self):
+        applier = dv.Applier(None, self.model)
+        p = applier.attr_payload("prfx_AmountWithTax", self.cols["prfx_AmountWithTax"])
+        self.assertEqual(p["@odata.type"], "Microsoft.Dynamics.CRM.DecimalAttributeMetadata")
+        self.assertEqual((p["SourceType"], p["FormulaDefinition"], p["Precision"]),
+                         (3, "If(prfx_amount > 0, prfx_amount * 1.2)", 2))
+        self.assertNotIn("RequiredLevel", p)
+
+    def fake_applier(self, definition):
+        calls = []
+
+        class FakeApi:
+            def get_or_none(self, path):
+                calls.append(("GET", path))
+                return {"SourceType": 3, "FormulaDefinition": definition}
+
+            def request(self, method, path, body, headers, **kw):
+                calls.append((method, path, headers))
+
+        applier = dv.Applier(FakeApi(), self.model)
+        applier.FORMULA_WAITS = (0, 0)
+        return applier, calls
+
+    def test_create_posts_in_solution_and_checks_the_formula(self):
+        applier, calls = self.fake_applier("If(prfx_amount > 0,\n prfx_amount * 1.2)")
+        applier.run({"op": "create", "kind": "formula", "table": "prfx_crm_Order", "name": "prfx_AmountWithTax"})
+        self.assertEqual(calls[0][0], "POST")
+        self.assertEqual(calls[0][2], {dv.SOLUTION_HEADER: "prfx_crm_Core"})
+        self.assertIn("DecimalAttributeMetadata", calls[1][1])
+
+    def test_rejected_formula_fails_explicitly(self):
+        applier, calls = self.fake_applier(None)
+        with self.assertRaisesRegex(RuntimeError, "was not accepted by Dataverse"):
+            applier.await_formula("prfx_crm_Order", "prfx_AmountWithTax", self.cols["prfx_AmountWithTax"])
+        self.assertEqual(sum(1 for c in calls if c[0] == "GET"), 3)
 
 
 class TestLocalization(unittest.TestCase):

@@ -86,6 +86,12 @@ BOOL_LABELS = {
 STRING_TYPES = {"text", "email", "url", "phone", "autonumber"}
 NUMERIC_TYPES = {"integer", "decimal", "money"}
 CHOICE_TYPES = {"choice", "multichoice"}
+# Formula columns (Power Fx, SourceType 3): the column type is the formula's result type.
+FORMULA_RESULT_TYPES = {"decimal", "integer", "text", "boolean", "datetime", "date", "choice"}
+FORMULA_FORBIDDEN = ("primary", "default", "required", "required_level", "format", "target",
+                     "cascade", "max_size_kb", "primary_image", "true_label", "false_label")
+SOURCE_FORMULA = 3
+SOURCE_NAMES = {1: "calculated", 2: "rollup", 3: "formula"}
 
 # Model type -> Web API metadata type
 ODATA_TYPE = {
@@ -158,7 +164,7 @@ TYPE_FROM_API = {
 }
 
 # Phase order used to sort plan actions.
-PHASE = {"choice": 0, "option": 1, "table": 2, "column": 3, "lookup": 4, "key": 5}
+PHASE = {"choice": 0, "option": 1, "table": 2, "column": 3, "lookup": 4, "formula": 5, "key": 6}
 
 
 class GuardError(Exception):
@@ -361,6 +367,104 @@ def _structural(report, data, schema_name, where):
         report.error(where, f"{e.message} (at {field})")
 
 
+def _fx_tokens(text):
+    """Power Fx text → [(kind, value)] with kind 'str' (literal), 'name' (identifier), 'ws', 'other'.
+    Best effort: "…" strings ("" escapes), '…' quoted names and // /* */ comments are opaque."""
+    tokens, i, n = [], 0, len(text or "")
+    text = text or ""
+    while i < n:
+        c = text[i]
+        if c in "\"'":
+            j = i + 1
+            while j < n:
+                if text[j] == c:
+                    if j + 1 < n and text[j + 1] == c:
+                        j += 2
+                        continue
+                    break
+                j += 1
+            tokens.append(("str" if c == '"' else "quoted", text[i:j + 1]))
+            i = j + 1
+        elif text.startswith("//", i) or text.startswith("/*", i):
+            end = text.find("\n", i) if text[i + 1] == "/" else text.find("*/", i)
+            end = n if end < 0 else end + (0 if text[i + 1] == "/" else 2)
+            tokens.append(("ws", " "))
+            i = end
+        elif c.isspace():
+            j = i
+            while j < n and text[j].isspace():
+                j += 1
+            tokens.append(("ws", " "))
+            i = j
+        elif c.isalpha() or c == "_":
+            j = i
+            while j < n and (text[j].isalnum() or text[j] == "_"):
+                j += 1
+            tokens.append(("name", text[i:j]))
+            i = j
+        else:
+            tokens.append(("other", c))
+            i += 1
+    return tokens
+
+
+def normalise_formula(text):
+    """Formula as compared by the plan: leading '=' dropped, whitespace and newlines
+    collapsed to one space outside string literals, comments kept out of the comparison."""
+    parts = []
+    for kind, value in _fx_tokens(text):
+        if kind != "ws" or (parts and parts[-1] != " "):
+            parts.append(value)
+    out = "".join(parts).strip()
+    return out[1:].strip() if out.startswith("=") else out
+
+
+def formula_refs(text):
+    """Identifiers a formula reads on its own row: names that don't follow a '.'
+    (a name after '.' is a column of a related table, reached through a lookup)."""
+    refs, prev = [], None
+    for kind, value in _fx_tokens(text):
+        if kind == "ws":
+            continue
+        if kind == "name" and prev != ".":
+            refs.append(value)
+        prev = value if kind == "other" else kind
+    return refs
+
+
+def formula_order(columns):
+    """Column names with formulas placed after the formulas they read. Raises ValueError on a cycle."""
+    lower = {c.lower(): c for c in columns}
+    deps = {}
+    for cname, col in columns.items():
+        col = col or {}
+        if col.get("type") == "formula":
+            deps[cname] = {lower[r.lower()] for r in formula_refs(col.get("formula"))
+                           if r.lower() in lower and r.lower() != cname.lower()
+                           and (columns[lower[r.lower()]] or {}).get("type") == "formula"}
+    ordered, state = [], {}
+
+    def visit(c, path):
+        if state.get(c) == "done":
+            return
+        if state.get(c) == "visiting":
+            raise ValueError(" → ".join(path + [c]))
+        state[c] = "visiting"
+        for d in sorted(deps.get(c, ()), key=list(columns).index):
+            visit(d, path + [c])
+        state[c] = "done"
+        ordered.append(c)
+
+    for c in columns:
+        visit(c, [])
+    return ordered
+
+
+def effective_type(col):
+    """The type whose attributes and payload apply: result_type for a formula column."""
+    return col.get("result_type") if col.get("type") == "formula" else col.get("type")
+
+
 APPLICABLE = {
     "max_length": STRING_TYPES | {"multiline"},
     "min": NUMERIC_TYPES, "max": NUMERIC_TYPES, "precision": {"decimal", "money"},
@@ -500,16 +604,40 @@ def validate_model(model_dir: Path) -> Report:
             if not low.startswith(prefix + "_"):
                 r.error(cw, f"column must start with the publisher prefix '{prefix}_'")
 
+            if ctype == "formula":
+                rtype = col.get("result_type")
+                if not str(col.get("formula") or "").strip():
+                    r.error(cw, "a formula column needs a non-empty 'formula'")
+                if not rtype:
+                    r.error(cw, "a formula column needs 'result_type'")
+                elif rtype not in FORMULA_RESULT_TYPES:
+                    r.error(cw, f"result_type '{rtype}' is not supported for a formula column "
+                                f"({', '.join(sorted(FORMULA_RESULT_TYPES))})")
+                for attr in FORMULA_FORBIDDEN:
+                    if attr in col:
+                        r.error(cw, f"'{attr}' does not apply to a formula column (Dataverse computes the value)")
+                for ref in dict.fromkeys(formula_refs(col.get("formula"))):
+                    if not ref.lower().startswith(prefix + "_"):
+                        continue  # Power Fx function, operator keyword or system column
+                    if ref.lower() == low:
+                        r.error(cw, f"the formula references its own column '{ref}'")
+                    elif ref.lower() not in {c.lower() for c in columns}:
+                        r.error(cw, f"the formula references '{ref}', which is not a column of the table")
+                    elif ref != ref.lower():
+                        r.error(cw, f"the formula must use logical names (lowercase) — write '{ref.lower()}'")
+            elif "result_type" in col or "formula" in col:
+                r.error(cw, "'result_type' and 'formula' apply only to type 'formula'")
+            etype = effective_type(col) or ""
             for attr, types in APPLICABLE.items():
-                if attr in col and ctype and ctype not in types:
-                    r.error(cw, f"'{attr}' does not apply to type '{ctype}'")
+                if attr in col and etype and etype not in types:
+                    r.error(cw, f"'{attr}' does not apply to type '{etype}'")
             if col.get("required") is not None and col.get("required_level"):
                 r.error(cw, "use either 'required' or 'required_level', not both")
             if col.get("primary") and ctype not in ("text", "autonumber"):
                 r.error(cw, "primary column must be of type text or autonumber")
             if col.get("primary") and ctype == "autonumber" and (col.get("required") or col.get("required_level") == "required"):
                 r.warn(cw, "an AutoNumber primary column should be optional — the value is generated")
-            if ctype == "text" and col.get("max_length", 0) > 4000:
+            if etype == "text" and col.get("max_length", 0) > 4000:
                 r.error(cw, "text max_length cannot exceed 4000 — use multiline")
             if ctype == "money":
                 if "precision" in col and col.get("precision_source", "currency") != "fixed":
@@ -521,7 +649,7 @@ def validate_model(model_dir: Path) -> Report:
             if ctype == "datetime" and col.get("behavior") == "dateonly":
                 r.warn(cw, "datetime with behavior dateonly — use type: date")
 
-            if ctype in CHOICE_TYPES:
+            if etype in CHOICE_TYPES:
                 ref = (col.get("choice") or "").lower()
                 if ref and ref not in choice_values:
                     r.error(cw, f"'choice: {col.get('choice')}' is not defined in {CHOICES_FILE}")
@@ -546,6 +674,11 @@ def validate_model(model_dir: Path) -> Report:
                 target = (col.get("target") or "").lower()
                 if target.startswith(prefix + "_") and target not in seen_tables:
                     r.error(cw, f"'target: {col.get('target')}' is not a table of the model")
+
+        try:
+            formula_order(columns)
+        except ValueError as e:
+            r.error(where, f"formula columns depend on each other in a cycle: {e}")
 
         if len(primary_images) > 1:
             r.error(where, f"a table can have only one primary image — found {', '.join(primary_images)}")
@@ -873,6 +1006,12 @@ def normalise_column(attr, typed, lcid):
         col["max_size_kb"] = t.get("MaxSizeInKB")
     if col["type"] == "image":
         col["primary_image"] = bool(t.get("IsPrimaryImage"))
+    if attr.get("SourceType") == SOURCE_FORMULA:
+        # Dataverse computes the value: no requirement level, the type is the result type.
+        col.pop("required_level", None)
+        col.pop("default", None)
+        col["result_type"], col["type"] = col["type"], "formula"
+        col["formula"] = normalise_formula(t.get("FormulaDefinition"))
     return col
 
 
@@ -946,11 +1085,11 @@ def read_table(api, logical, model_table, lcid, prefix):
     }
     attrs = api.get_all(base + "/Attributes?$select=LogicalName,MetadataId,AttributeType,"
                                "AttributeTypeName,DisplayName,Description,RequiredLevel,IsAuditEnabled,"
-                               "IsValidForAdvancedFind,IsCustomAttribute,AttributeOf,AutoNumberFormat")
+                               "IsValidForAdvancedFind,IsCustomAttribute,AttributeOf,AutoNumberFormat,SourceType")
     model_cols = {c.lower(): spec for c, spec in (model_table.get("columns") or {}).items()}
     present = {a["LogicalName"].lower(): a for a in attrs}
 
-    needed = {}
+    needed, formula_types = {}, set()
     for name in model_cols:
         if name not in present:
             continue
@@ -964,9 +1103,13 @@ def read_table(api, logical, model_table, lcid, prefix):
                  "ImageType": "ImageAttributeMetadata"}.get(tname)
         if odata:
             needed.setdefault(odata, set()).add(name)
+            if present[name].get("SourceType") == SOURCE_FORMULA:
+                formula_types.add(odata)
     typed = {}
     for odata, names in needed.items():
         q = f"{base}/Attributes/Microsoft.Dynamics.CRM.{odata}?$select=LogicalName,{TYPED_SELECT[odata]}"
+        if odata in formula_types:
+            q += ",FormulaDefinition"
         if odata in TYPED_EXPAND:
             q += f"&$expand={TYPED_EXPAND[odata]}"
         for row in api.get_all(q):
@@ -988,7 +1131,8 @@ def read_table(api, logical, model_table, lcid, prefix):
         elif (a.get("IsCustomAttribute") and not a.get("AttributeOf")
               and name.startswith(prefix + "_") and name != table["primary"]):
             tname = ((a.get("AttributeTypeName") or {}).get("Value")) or a.get("AttributeType")
-            table["unmanaged_columns"].append({"name": name, "type": tname})
+            source = SOURCE_NAMES.get(a.get("SourceType"))
+            table["unmanaged_columns"].append({"name": name, "type": f"{source} {tname}" if source else tname})
 
     for k in api.get_all(base + "/Keys?$select=SchemaName,LogicalName,KeyAttributes,MetadataId"):
         table["keys"][(k.get("SchemaName") or k.get("LogicalName")).lower()] = {
@@ -1048,6 +1192,23 @@ def cascade_to_api(casc):
 
 def desired_column(col):
     """Model column → dict of the fields this tool manages for it."""
+    if col["type"] == "formula":
+        rtype = col["result_type"]
+        if rtype == "datetime" and col.get("behavior") == "dateonly":
+            rtype = "date"
+        # Dataverse computes the value: no requirement level, no default.
+        d = {"type": "formula", "result_type": rtype, "formula": normalise_formula(col["formula"]),
+             "label": col["label"]}
+        for f in ("description", "auditing", "searchable", "max_length", "min", "max", "precision"):
+            if f in col:
+                d[f] = col[f]
+        if rtype == "datetime":
+            for f in ("behavior", "display"):
+                if f in col:
+                    d[f] = col[f]
+        if rtype == "choice":
+            d["choice"] = col["choice"].lower()
+        return d
     ctype = col["type"]
     if ctype == "datetime" and col.get("behavior") == "dateonly":
         ctype = "date"
@@ -1072,10 +1233,24 @@ def desired_column(col):
 # Fields whose change cannot be applied in place.
 IMMUTABLE_COLUMN = {
     "type": "column type cannot be changed in place (needs a new column + data migration)",
+    "result_type": "the result type of a formula column cannot be changed in place",
     "choice": "the global Choice bound to a column cannot be changed in place",
     "target": "a lookup target cannot be changed in place",
     "max_size_kb": "file/image max size cannot be changed after creation",
 }
+
+
+def column_kind(spec):
+    return {"lookup": "lookup", "formula": "formula"}.get(spec["type"], "column")
+
+
+def create_detail(spec):
+    if spec["type"] == "lookup":
+        return f"→ {spec['target']} (cascade {cascade_label(expand_cascade(spec['cascade']))})"
+    if spec["type"] == "formula":
+        fx = normalise_formula(spec["formula"])
+        return f"{spec['result_type']} = {fx if len(fx) <= 60 else fx[:57] + '...'}"
+    return spec["type"]
 
 
 def diff(model, server):
@@ -1141,13 +1316,10 @@ def diff(model, server):
         srv = server["tables"].get(low)
         if srv is None:
             act("create", "table", key, detail=f"primary {primary}: {cols[primary]['type']}")
-            for cname, spec in cols.items():
+            for cname in formula_order(cols):  # a formula after the formulas it reads
                 if cname == primary:
                     continue
-                kind = "lookup" if spec["type"] == "lookup" else "column"
-                detail = (f"→ {spec['target']} (cascade {cascade_label(expand_cascade(spec['cascade']))})" if kind == "lookup"
-                          else spec["type"])
-                act("create", kind, cname, table=key, detail=detail)
+                act("create", column_kind(cols[cname]), cname, table=key, detail=create_detail(cols[cname]))
             for k in t.get("keys") or []:
                 act("create", "key", k["schema_name"], table=key, detail="(" + ", ".join(k["columns"]) + ")")
             continue
@@ -1172,17 +1344,18 @@ def diff(model, server):
             act("update", "table", key, changes={"solution": ["absent", "present"]},
                 solution_component=1)
 
-        for cname, spec in cols.items():
+        for cname in formula_order(cols):
+            spec = cols[cname]
             want = desired_column(spec)
             have = srv["columns"].get(cname.lower())
-            kind = "lookup" if want["type"] == "lookup" else "column"
+            kind = column_kind(spec)
             if have is None:
-                detail = (f"→ {spec['target']} (cascade {cascade_label(expand_cascade(spec['cascade']))})" if kind == "lookup"
-                          else want["type"])
-                act("create", kind, cname, table=key, detail=detail)
+                act("create", kind, cname, table=key, detail=create_detail(spec))
                 continue
             col_changes, col_blocked = {}, False
             for field, reason in IMMUTABLE_COLUMN.items():
+                if field == "result_type" and have.get("type") != want["type"]:
+                    continue  # the type change is already blocked
                 if field in want and not _same(have.get(field), want[field]):
                     blocked.append({"kind": kind, "name": f"{key}.{cname}", "field": field,
                                     "server": have.get(field), "model": want[field], "reason": reason})
@@ -1196,7 +1369,7 @@ def diff(model, server):
                     blocked.append({"kind": kind, "name": f"{key}.{cname}", "field": "behavior",
                                     "server": have.get("behavior"), "model": want["behavior"],
                                     "reason": "DateTime behavior can only change once, from userlocal"})
-            for field in ("label", "description", "required_level", "auditing", "searchable",
+            for field in ("formula", "label", "description", "required_level", "auditing", "searchable",
                           "max_length", "min", "max", "precision", "precision_source", "format",
                           "default", "display", "true_label", "false_label", "primary_image"):
                 if field not in want:
@@ -1211,7 +1384,8 @@ def diff(model, server):
                 if not _same(have.get(field), want[field]):
                     col_changes[field] = [have.get(field), want[field]]
             if col_changes:
-                act("update", "column", cname, table=key, changes=col_changes, type=want["type"])
+                act("update", "formula" if kind == "formula" else "column", cname, table=key,
+                    changes=col_changes, type=want.get("result_type", want["type"]))
             if kind == "lookup":
                 have_casc = have.get("cascade") or {}
                 casc_changes = {f"cascade.{a}": [have_casc.get(a), want["cascade"][a]]
@@ -1500,7 +1674,7 @@ class Applier:
 
     # -- payloads -------------------------------------------------------------
     def attr_payload(self, name, col):
-        ctype = col["type"]
+        ctype = effective_type(col)
         if ctype == "datetime" and col.get("behavior") == "dateonly":
             ctype = "date"
         p = {"@odata.type": f"Microsoft.Dynamics.CRM.{ODATA_TYPE[ctype]}",
@@ -1558,6 +1732,12 @@ class Applier:
                 p["MaxSizeInKB"] = 32768
             if ctype == "image":
                 p["IsPrimaryImage"] = bool(col.get("primary_image", False))
+        if col["type"] == "formula":
+            # Power Fx formula column: Dataverse computes the value from FormulaDefinition.
+            for k in ("RequiredLevel", "DefaultValue", "DefaultFormValue"):
+                p.pop(k, None)
+            p["SourceType"] = SOURCE_FORMULA
+            p["FormulaDefinition"] = normalise_formula(col["formula"])
         return p
 
     # -- executors ------------------------------------------------------------
@@ -1688,6 +1868,8 @@ class Applier:
                     "Value": BOOL_OPTION_VALUE[field], "Label": make_label(new, self.lcid),
                     "MergeLabels": True, "SolutionUniqueName": self.solution,
                 }, solution=False)
+            elif field == "formula":
+                body["FormulaDefinition"] = new
             elif field == "label":
                 body["DisplayName"] = make_label(new, self.lcid)
             elif field == "description":
@@ -1723,6 +1905,39 @@ class Applier:
         if put_needed:
             self.put(f"{tbase}/Attributes({body['MetadataId']})", body)
         self.touched_tables.add(a["table"].lower())
+
+    # Dataverse validates a formula after the write returns: re-read the column until the
+    # stored definition matches the model, and fail explicitly otherwise.
+    FORMULA_WAITS = (2, 4, 8, 15, 30)
+
+    def create_formula(self, a):
+        spec = self.column_spec(a["table"], a["name"])
+        self.create_column(a)
+        self.await_formula(a["table"], a["name"], spec)
+
+    def update_formula(self, a):
+        spec = self.column_spec(a["table"], a["name"])
+        self.update_column(a)
+        self.await_formula(a["table"], a["name"], spec)
+
+    def await_formula(self, table, column, spec):
+        want = normalise_formula(spec["formula"])
+        odata = ODATA_TYPE[desired_column(spec)["result_type"]]
+        path = (f"EntityDefinitions(LogicalName='{table.lower()}')/Attributes(LogicalName='{column.lower()}')"
+                f"/Microsoft.Dynamics.CRM.{odata}?$select=LogicalName,SourceType,FormulaDefinition")
+        seen = "column not readable yet"
+        for wait in (0,) + self.FORMULA_WAITS:
+            time.sleep(wait)
+            attr = self.api.get_or_none(path)
+            if attr is None:
+                continue
+            got = normalise_formula(attr.get("FormulaDefinition"))
+            if attr.get("SourceType") == SOURCE_FORMULA and got == want:
+                return
+            seen = f"SourceType {attr.get('SourceType')}, FormulaDefinition \"{got}\""
+        raise RuntimeError(f"formula column {table}.{column} was not accepted by Dataverse — expected "
+                           f"\"{want}\", found {seen}. Check the formula (column names, result type) "
+                           f"in the maker portal.")
 
     def create_lookup(self, a):
         spec = self.column_spec(a["table"], a["name"])

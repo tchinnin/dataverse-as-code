@@ -16,7 +16,7 @@ Every file starts with the `yaml-language-server` directive so VS Code validates
 | `choices.dv.metadata.yaml` | `choices.schema.json` | `choices:` map of global Choices |
 | `tables/<key>.dv.metadata.yaml` | `table.schema.json` | One table, with its columns and alternate keys |
 
-The tool finds table files with a glob over `tables/*.dv.metadata.yaml`. There is no manifest, and the tool works out the dependency order itself: Choices → tables → columns → lookups → keys.
+The tool finds table files with a glob over `tables/*.dv.metadata.yaml`. There is no manifest, and the tool works out the dependency order itself: Choices → tables → columns → lookups → formula columns → keys.
 
 ## Names
 
@@ -121,6 +121,7 @@ Type-specific attributes:
 | `lookup` | `target` (required), `cascade` (required) — see [Relationship behavior](#relationship-behavior) | creates the N:1 relationship `{table}_{ColumnName}`; `target` change → **blocked** |
 | `file` | `max_size_kb` (default 32768) | size can't be changed later |
 | `image` | `max_size_kb`, `primary_image: true` | at most one primary image per table; it can be moved to another column but never unset |
+| `formula` | `formula` (required), `result_type` (required), then the attributes of the result type | Power Fx formula column — see [Formula columns](#formula-columns) |
 
 ## Relationship behavior
 
@@ -158,7 +159,28 @@ prfx_ProjectId:
 - `validate` rejects a table with more than one parental relationship (any action `all`/`active`/`userowned`, or `delete: all`) and warns on `delete: all` (needs explicit confirmation) and on `active`/`userowned` with `ownership: org`.
 - `on_delete` is no longer accepted: `restrict` → `cascade: restrict`, `removelink` → `cascade: referential`, `cascade` → `cascade: {delete: all}`.
 
-Calculated, rollup and formula columns, N:N relationships, forms and views are **outside the model**. Handle them with `dataverse:dv-metadata`.
+## Formula columns
+
+A formula column (Dataverse *fx Formula*, `SourceType` 3) holds a Power Fx formula. Dataverse computes its value.
+
+```yaml
+prfx_AmountWithTax:
+  label: Amount Incl. Tax
+  type: formula
+  result_type: decimal        # decimal | integer | text | boolean | datetime | date | choice
+  formula: "If(prfx_amount > 0, prfx_amount * 1.2)"
+  precision: 2                # attributes of the result type: decimal → min, max, precision
+  description: Amount with 20% tax; empty when the amount is 0 or missing.
+```
+
+- `result_type` is the type of the value the formula returns. The other attributes follow the rules of that type (`max_length` for text, `min`/`max`/`precision` for decimal, `behavior`/`display` for datetime, `choice` (required) for choice). Money is not a formula result type in Dataverse.
+- `primary`, `default`, `required` and `required_level` are rejected (along with `format`, `target`, `cascade`, `max_size_kb`, `primary_image`, `true_label`, `false_label`): Dataverse computes the value.
+- The formula references columns of the **same table** by their **logical name** (lowercase), e.g. `prfx_amount`. `validate` checks, on a best-effort basis, that every `{prefix}_…` name it reads is a column of the table. Strings, `'quoted names'` and names after a `.` (related-table columns reached through a lookup) are not checked. A formula can't read its own column, and formulas can't depend on each other in a cycle.
+- `apply` creates formula columns after every other column and lookup of the run, and a formula after the formulas it reads.
+- The plan compares formulas with whitespace and line breaks collapsed (outside string literals), so a multi-line YAML block (`formula: |`) and a single-line one are the same.
+- A change of `formula`, `label`, `description` or a result-type attribute is a `~ update`. A change of `result_type`, or between a simple column and a formula column, is **blocked**.
+
+Calculated and rollup columns, N:N relationships, forms and views are **outside the model**. Handle them with `dataverse:dv-metadata`.
 
 ## Alternate keys
 
