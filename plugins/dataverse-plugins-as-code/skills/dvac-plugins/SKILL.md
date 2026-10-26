@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.0"
+  version: "2.0.1"
 ---
 
 ## Official skill
@@ -131,6 +131,7 @@ custom_apis:
 3. **Solution membership.** Every component lands in `publisher.solution`:
    - **On create**, the request carries the `MSCRM.SolutionUniqueName` header. This covers the package or assembly, steps, images, the Custom API, its parameters and its response properties.
    - **An existing component outside the solution** is planned as `~ update … solution: absent → <solution>` and added with `AddSolutionComponent`. A step registered through the Plugin Registration Tool is a typical case.
+   - **A package unit** adds the package, never its assemblies: Dataverse refuses them, and the package carries them. An assembly unit adds the assembly.
 
 The phase order and the exact payloads are in [`references/plan-apply.md`](references/plan-apply.md).
 

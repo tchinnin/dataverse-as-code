@@ -49,12 +49,14 @@ Every kind can also have an `~ update … solution: absent → <solution>` actio
 1. `- delete` images, then `- delete` steps. Dataverse rejects a package update that removes a class a step still uses, so deletes come first.
 2. Package or assembly: `+ create`, `~ update` (id), `↑ push`. After an upload or a push, the tool:
    - reads the package's assemblies and plug-in types again
-   - adds to the solution any assembly that the server created outside it
+   - for an assembly unit, adds the assembly to the solution if the server created it outside it. A package's assemblies are never added: the package carries them.
 3. `+ create plugintype` (assembly only)
 4. Custom APIs, then their request parameters and response properties
 5. Steps: the message and filter are resolved from `sdkmessages` / `sdkmessagefilters`, and the handler is bound with `eventhandler_plugintype`. A step with `enabled: false` is disabled right after creation.
 6. Images
-7. Solution membership: package → assemblies → Custom APIs → parameters → properties → steps → images
+7. Solution membership, parents before children:
+   - package unit: package → Custom APIs → parameters → properties → steps → images
+   - assembly unit: assembly → Custom APIs → parameters → properties → steps → images
 8. Post-apply check: `plan` runs again with `Consistency: Strong` and must be empty. Because the read bypasses the cache, a remaining difference is real: investigate it rather than retrying.
 
 Updates use `PATCH` with `If-Match: *`, so an update never creates a record by accident. Transient errors are retried as in `dv_metadata.py`: lock contention, the metadata cache, and HTTP 429. Set `DV_PLUGIN_DEBUG=1` to print every Web API call with its duration.
@@ -62,7 +64,8 @@ Updates use `PATCH` with `If-Match: *`, so an update never creates a record by a
 ## Solution membership
 
 - **On create**, every `POST` sends `MSCRM.SolutionUniqueName: <publisher.solution>`. This is the documented header name. Dataverse silently ignores an unknown header, and the component then lands outside the solution.
-- **The server creates some components itself.** These are the assemblies of an uploaded package and the parameters of a deep-inserted Custom API. The tool checks them right after the create and adds the missing ones.
+- **The server creates some components itself.** These are the parameters of a deep-inserted Custom API, and the assembly of a standalone assembly unit. The tool checks them right after the create and adds the missing ones.
+- **A package's assemblies are never solution components.** Only the `pluginpackage` is one, and it carries its assemblies and plug-in types. Dataverse refuses `AddSolutionComponent` on such an assembly (`0x8004023b`, "part of a Plugin Package"), so `plan` never proposes it. If `apply` still gets that error, it shows a note and continues.
 - **For existing components**, `plan` reads `solutioncomponents` of the solution. A component outside it gets `~ update <kind> <name>  solution: "absent" → "<solution>"`, which `apply` runs as `AddSolutionComponent` with:
   - `AddRequiredComponents: false`
   - `DoNotIncludeSubcomponents: true` (each child is added explicitly)
