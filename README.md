@@ -23,6 +23,181 @@ We suggest pairing this marketplace with [`powerplatform-bestpractices`](https:/
 | `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. |
 | `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner` | `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. |
 
+## Example
+
+A short walk through both plugins: describe the change in YAML, review the plan, apply it. You normally ask the planner agent (*"add an Order table linked to Customer"*); it writes the YAML, runs `plan`, shows you the result and applies only after you confirm. The commands below are what it runs. Names follow one example scheme — use your own.
+
+### 1. Describe the metadata
+
+`dataverse/metadata/_meta.dv.metadata.yaml` — the publisher and the dev solution:
+
+```yaml
+version: "1.0"
+publisher:
+  prefix: prfx
+  solution: prfx_crm_Core
+locale: en
+```
+
+`dataverse/metadata/choices.dv.metadata.yaml` — global Choices:
+
+```yaml
+choices:
+  prfx_crm_choice_OrderStatus:
+    label: Order Status
+    options:
+      - {value: 100000000, label: Draft,     color: "#9EA6B3"}
+      - {value: 100000001, label: Confirmed, color: "#1B8ED4"}
+      - {value: 100000002, label: Shipped,   color: "#37B400"}
+```
+
+`dataverse/metadata/tables/prfx_crm_Order.dv.metadata.yaml` — a table, its columns and a lookup to an existing `prfx_crm_Customer` table:
+
+```yaml
+key: prfx_crm_Order
+label: Order
+label_plural: Orders
+ownership: user
+table_type: standard
+
+columns:
+  prfx_OrderNumber:
+    label: Order Number
+    type: autonumber
+    primary: true
+    format: "ORD-{SEQNUM:6}"
+
+  prfx_CustomerId:
+    label: Customer
+    type: lookup
+    target: prfx_crm_Customer
+    cascade: restrict
+    required: true
+
+  prfx_StatusCode:
+    label: Status
+    type: choice
+    choice: prfx_crm_choice_OrderStatus
+    default: 100000000
+
+  prfx_Amount:
+    label: Amount
+    type: decimal
+    min: 0
+    max: 1000000000
+    precision: 2
+```
+
+### 2. Describe the plug-ins
+
+`plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml` — next to the `.csproj`:
+
+```yaml
+version: "1.0"
+publisher:
+  prefix: prfx
+  solution: prfx_crm_Core
+package:
+  name: prfx_Contoso.Crm.Plugins
+  nupkg: bin/Release/*.nupkg
+  id: null                           # written by apply after the first upload
+
+steps:
+  - plugin: Contoso.Crm.Plugins.OrderPreCreate
+    message: Create
+    table: prfx_crm_order
+    stage: pre-operation
+
+  - plugin: Contoso.Crm.Plugins.OrderStatusChanged
+    message: Update
+    table: prfx_crm_order
+    stage: post-operation
+    mode: async
+    filtering_attributes: [prfx_statuscode]
+    images:
+      - name: PreImage
+        type: pre
+        attributes: [prfx_statuscode, prfx_customerid]
+```
+
+### 3. Plan
+
+The metadata plan is a read-only diff against the dev environment, saved to `.dv-metadata/plan.json`:
+
+```
+$ python3 dv_metadata.py plan dataverse/metadata
+Dataverse metadata plan
+  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev)
+  solution : prfx_crm_Core (unmanaged)
+  az user  : dev@contoso.com (tenant 0000…)
+
+  + create  choice  prfx_crm_choice_OrderStatus  3 options
+  + create  table   prfx_crm_Order  primary prfx_OrderNumber: autonumber
+  + create  column  prfx_crm_Order.prfx_StatusCode  choice
+  + create  column  prfx_crm_Order.prfx_Amount  decimal
+  + create  lookup  prfx_crm_Order.prfx_CustomerId  → prfx_crm_Customer (cascade restrict)
+
+Summary: 5 to create, 0 to update, 0 blocked, 0 unmanaged.
+
+Plan saved to /repo/.dv-metadata/plan.json
+Apply it with: dv_metadata.py apply dataverse/metadata --plan-file /repo/.dv-metadata/plan.json
+```
+
+The plug-in plan compares the build output and the registrations, saved to `.dv-plugin/plan.json`:
+
+```
+$ python3 dv_plugin.py plan plugins/Contoso.Crm.Plugins
+Dataverse plug-in plan
+  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev)
+  az user  : dev@contoso.com (tenant 0000…)
+  package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
+             plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.0.nupkg  sha256 1f0c9a7e5b21
+
+  + create  package    prfx_Contoso.Crm.Plugins  Contoso.Crm.Plugins.1.0.0.nupkg version 1.0.0
+  + create  step       Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order  Create prfx_crm_order pre-operation sync
+  + create  step       Contoso.Crm.Plugins.OrderStatusChanged: Update of prfx_crm_order  Update prfx_crm_order post-operation async
+  + create  image      Contoso.Crm.Plugins.OrderStatusChanged: Update of prfx_crm_order / PreImage  pre (prfx_statuscode, prfx_customerid)
+
+Summary: 4 to create, 0 to update, 0 to push, 0 to delete, 0 blocked, 0 unmanaged.
+
+Plan saved to /repo/.dv-plugin/plan.json
+Apply it with: dv_plugin.py apply plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
+```
+
+A plan can also show `~ update` (changed in place), `↑ push` (new package content), `- delete` (a step or image removed from the model — asks for a second confirmation), `!` blocked changes that Dataverse cannot make in place, and `?` unmanaged components that are reported but never deleted. See each skill's `references/plan-apply.md`.
+
+### 4. Apply
+
+Once you have confirmed the plan, `apply` runs exactly that plan — it aborts if the model or the server changed since — then plans again and expects no difference:
+
+```
+$ python3 dv_metadata.py apply dataverse/metadata --plan-file .dv-metadata/plan.json
+Applying 5 change(s) to https://contoso-dev.crm4.dynamics.com (prfx_crm_Core)
+  ✓ create choice  prfx_crm_choice_OrderStatus
+  ✓ create table   prfx_crm_Order
+  ✓ create column  prfx_crm_Order.prfx_StatusCode
+  ✓ create column  prfx_crm_Order.prfx_Amount
+  ✓ create lookup  prfx_crm_Order.prfx_CustomerId
+  ✓ publish
+
+5/5 change(s) applied.
+Post-apply plan is empty — the environment matches the model.
+```
+
+```
+$ python3 dv_plugin.py apply plugins/Contoso.Crm.Plugins --plan-file .dv-plugin/plan.json
+Applying 4 change(s) to https://contoso-dev.crm4.dynamics.com
+  ✓ create package    prfx_Contoso.Crm.Plugins
+  ✓ create step       Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order
+  ✓ create step       Contoso.Crm.Plugins.OrderStatusChanged: Update of prfx_crm_order
+  ✓ create image      Contoso.Crm.Plugins.OrderStatusChanged: Update of prfx_crm_order / PreImage
+
+4/4 change(s) applied.
+Post-apply plan is empty — the environment matches the model.
+```
+
+After the first upload, `apply` writes the package `id` into the YAML; commit it with the model. Every component lands in `prfx_crm_Core`, ready to export with your ALM pipeline.
+
 ## Installation
 
 Claude Code:
