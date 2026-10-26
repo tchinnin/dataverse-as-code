@@ -6,7 +6,7 @@ dv_metadata.py — Dataverse metadata as code
 Reads a model described in ``*.dv.metadata.yaml`` files::
 
     dataverse/metadata/
-    ├── _meta.dv.metadata.yaml          # publisher, project code, solution, locale
+    ├── _meta.dv.metadata.yaml          # publisher, solution, locale
     ├── choices.dv.metadata.yaml        # global Choices
     └── tables/<key>.dv.metadata.yaml   # one table per file
 
@@ -21,9 +21,11 @@ and reconciles it with a Dataverse **dev** environment, Terraform style:
 Never deletes anything. Components present on the server but absent from the
 model are reported as "unmanaged" and left untouched.
 
-Authentication: Azure CLI token (``az login``). Target: ``<repo-root>/.env.dev``
-only — the script refuses to run against anything that is not a dev
-environment holding the target solution as unmanaged.
+Authentication: Azure CLI token (``az login``). Target: the dev environment given
+by ``--env-url/--stage/--tenant``, else the ``DATAVERSE_URL/ENVIRONMENT_STAGE/TENANT_ID``
+environment variables, else ``<repo-root>/.env.dev``. The script refuses to run
+unless the target is declared as stage ``dev`` and holds the target solution as
+unmanaged.
 
 Exit codes:
     0  no changes (plan) / success (validate, doctor, apply)
@@ -67,7 +69,7 @@ META_FILE = "_meta" + EXT
 CHOICES_FILE = "choices" + EXT
 TABLES_DIR = "tables"
 PLAN_DIR = ".dv-metadata"
-PLAN_VERSION = 1
+PLAN_VERSION = 2
 API_VERSION = "v9.2"
 # Associates a created/updated solution component with a solution. The documented
 # name is MSCRM.SolutionUniqueName — an unknown header (e.g. MSCRM.SolutionName) is
@@ -260,11 +262,11 @@ def used_languages(model):
 
 
 def prefixes(meta):
+    """Publisher prefix, and the schema-name prefix that scopes '? unmanaged' reporting."""
     pub = meta.get("publisher") or {}
     prefix = (pub.get("prefix") or "").lower()
-    pc = (pub.get("project_code") or "").lower()
-    scope = f"{prefix}_{pc}_" if pc else f"{prefix}_"
-    return prefix, pc, scope, scope + "choice_"
+    scope = (pub.get("scope") or "").lower() or f"{prefix}_"
+    return prefix, scope
 
 
 def model_lcid(meta):
@@ -378,9 +380,11 @@ def validate_model(model_dir: Path) -> Report:
         r.error(META_FILE, "root must be a YAML mapping")
         return r
     _structural(r, meta, "meta.schema.json", META_FILE)
-    prefix, pc, table_prefix, choice_prefix = prefixes(meta)
+    prefix, scope = prefixes(meta)
     if not prefix:
         return r
+    if not scope.startswith(prefix + "_"):
+        r.error(META_FILE, f"publisher.scope must start with '{prefix}_'")
     base = model_lcid(meta)
     langs = set(model_languages(meta))
 
@@ -428,11 +432,8 @@ def validate_model(model_dir: Path) -> Report:
             report_missing(where, missing)
             if ckey.lower() in choice_values:
                 r.error(where, "duplicate global Choice (names are case-insensitive)")
-            if not ckey.lower().startswith(choice_prefix):
-                r.error(where, f"global Choice must start with '{choice_prefix}'")
-            label = base_text(spec.get("label"), base).strip()
-            if label and not label.endswith(" Choice"):
-                r.warn(where, f"Display Name should end with ' Choice' (e.g. '{label} Choice')")
+            if not ckey.lower().startswith(prefix + "_"):
+                r.error(where, f"global Choice must start with the publisher prefix '{prefix}_'")
             values, labels = set(), set()
             for opt in spec.get("options") or []:
                 v = opt.get("value")
@@ -465,8 +466,8 @@ def validate_model(model_dir: Path) -> Report:
         if key.lower() in seen_tables:
             r.error(where, f"duplicate table '{key}' (names are case-insensitive)")
         seen_tables.add(key.lower())
-        if key and not key.lower().startswith(table_prefix):
-            r.error(where, f"table must start with '{table_prefix}'")
+        if key and not key.lower().startswith(prefix + "_"):
+            r.error(where, f"table must start with the publisher prefix '{prefix}_'")
         loaded.append((where, data))
 
     for where, t in loaded:
@@ -482,10 +483,6 @@ def validate_model(model_dir: Path) -> Report:
         report_missing(where, missing)
         if t.get("ownership") == "org":
             r.warn(where, "ownership: org — requires explicit double confirmation from the user (irreversible)")
-        if t.get("auditing") is True:
-            r.warn(where, "auditing: true — requires explicit double confirmation (Dataverse storage cost)")
-        if not t.get("description"):
-            r.warn(where, "table has no description")
 
         primaries = [c for c, cd in columns.items() if (cd or {}).get("primary")]
         if len(primaries) != 1:
@@ -501,10 +498,7 @@ def validate_model(model_dir: Path) -> Report:
                 r.error(cw, "duplicate column (names are case-insensitive)")
             lowered.add(low)
             if not low.startswith(prefix + "_"):
-                r.error(cw, f"column must start with '{prefix}_'")
-            if pc and low.startswith(table_prefix):
-                r.error(cw, f"columns never carry the project code — use '{prefix}_<Name>'")
-            local = low[len(prefix) + 1:] if low.startswith(prefix + "_") else low
+                r.error(cw, f"column must start with the publisher prefix '{prefix}_'")
 
             for attr, types in APPLICABLE.items():
                 if attr in col and ctype and ctype not in types:
@@ -518,7 +512,6 @@ def validate_model(model_dir: Path) -> Report:
             if ctype == "text" and col.get("max_length", 0) > 4000:
                 r.error(cw, "text max_length cannot exceed 4000 — use multiline")
             if ctype == "money":
-                r.warn(cw, "money column — requires explicit double confirmation (currency machinery); prefer decimal")
                 if "precision" in col and col.get("precision_source", "currency") != "fixed":
                     r.error(cw, "'precision' is ignored unless 'precision_source: fixed'")
                 if col.get("precision", 0) > 4:
@@ -527,8 +520,6 @@ def validate_model(model_dir: Path) -> Report:
                 primary_images.append(cname)
             if ctype == "datetime" and col.get("behavior") == "dateonly":
                 r.warn(cw, "datetime with behavior dateonly — use type: date")
-            if col.get("auditing") is True:
-                r.warn(cw, "column auditing: true — requires explicit double confirmation")
 
             if ctype in CHOICE_TYPES:
                 ref = (col.get("choice") or "").lower()
@@ -536,8 +527,6 @@ def validate_model(model_dir: Path) -> Report:
                     r.error(cw, f"'choice: {col.get('choice')}' is not defined in {CHOICES_FILE}")
                 elif ref and "default" in col and col["default"] not in choice_values[ref]:
                     r.error(cw, f"default {col['default']} is not an option of {col.get('choice')}")
-                if not local.endswith("code"):
-                    r.warn(cw, "choice column should end with 'Code' (e.g. prfx_StatusCode)")
             if "on_delete" in col:
                 hint = ON_DELETE_MIGRATION.get(str(col["on_delete"]).lower(), "cascade: <preset or mapping>")
                 r.error(cw, f"'on_delete' was replaced by 'cascade' — use '{hint}'")
@@ -557,14 +546,6 @@ def validate_model(model_dir: Path) -> Report:
                 target = (col.get("target") or "").lower()
                 if target.startswith(prefix + "_") and target not in seen_tables:
                     r.error(cw, f"'target: {col.get('target')}' is not a table of the model")
-                if not local.endswith("id"):
-                    r.warn(cw, "lookup column should end with 'Id' (e.g. prfx_CustomerId)")
-            elif local.endswith("id"):
-                r.warn(cw, "non-lookup column ending in 'Id' collides with lookup navigation properties — use another stem (e.g. SourceRef)")
-            if ctype == "boolean" and not (local.startswith("is") or local.startswith("has")):
-                r.warn(cw, "boolean column should start with 'Is' or 'Has'")
-            if ctype in CHOICE_TYPES | {"lookup"} and not col.get("description"):
-                r.warn(cw, "non-trivial column (choice/lookup) has no description")
 
         if len(primary_images) > 1:
             r.error(where, f"a table can have only one primary image — found {', '.join(primary_images)}")
@@ -605,12 +586,19 @@ def validate_path(path: Path) -> Report:
 # --------------------------------------------------------------------------- #
 # Dev-only guard
 # --------------------------------------------------------------------------- #
+ENV_KEYS = ("DATAVERSE_URL", "ENVIRONMENT_STAGE", "TENANT_ID")
+ENV_HELP = ("provide the dev environment with --env-url <url> --stage dev [--tenant <id>], "
+            "or the DATAVERSE_URL / ENVIRONMENT_STAGE=dev / TENANT_ID environment variables, "
+            "or a <repo-root>/.env.dev file with the same keys")
+
+
 def find_repo_root(start: Path) -> Path:
+    """Nearest folder holding .env.dev or .git; the current directory otherwise."""
     p = start.resolve()
     for candidate in [p, *p.parents]:
         if (candidate / ".env.dev").is_file() or (candidate / ".git").exists():
             return candidate
-    raise GuardError("cannot find the repository root (no .env.dev or .git above the model)")
+    return Path.cwd().resolve()
 
 
 def read_dotenv(path: Path):
@@ -634,24 +622,44 @@ def _norm_url(u):
     return (u or "").strip().lower().rstrip("/")
 
 
-def dev_environment(repo_root: Path):
-    """Local half of the guard: .env.dev only, stage=dev, URL distinct from uat/prod."""
+def add_env_args(parser):
+    g = parser.add_argument_group("dev environment (overrides environment variables and .env.dev)")
+    g.add_argument("--env-url", help="Dataverse URL of the dev environment")
+    g.add_argument("--stage", help="declared stage of that environment — must be 'dev'")
+    g.add_argument("--tenant", help="Entra tenant id used for the az token")
+
+
+def env_inputs(args):
+    return {"url": getattr(args, "env_url", None), "stage": getattr(args, "stage", None),
+            "tenant": getattr(args, "tenant", None)}
+
+
+def _env_source(repo_root: Path, url=None, stage=None, tenant=None):
+    """The first source that names a URL wins; URL and stage never mix sources."""
+    if url or stage:
+        return "command-line flags", {"DATAVERSE_URL": url, "ENVIRONMENT_STAGE": stage, "TENANT_ID": tenant}
+    if os.environ.get("DATAVERSE_URL") or os.environ.get("ENVIRONMENT_STAGE"):
+        return "environment variables", {k: os.environ.get(k) for k in ENV_KEYS}
     env_path = repo_root / ".env.dev"
-    if not env_path.is_file():
-        raise GuardError(f"{env_path} not found — this tool only runs against the dev environment "
-                         f"described in .env.dev (see ppbp-init)")
-    env = read_dotenv(env_path)
+    if env_path.is_file():
+        return str(env_path), read_dotenv(env_path)
+    raise GuardError("no dev environment given — " + ENV_HELP)
+
+
+def dev_environment(repo_root: Path, url=None, stage=None, tenant=None):
+    """Local half of the guard: one source, declared stage=dev, URL distinct from uat/prod."""
+    source, env = _env_source(repo_root, url, stage, tenant)
     if (env.get("ENVIRONMENT_STAGE") or "").lower() != "dev":
-        raise GuardError(f".env.dev must declare ENVIRONMENT_STAGE=dev (found "
-                         f"'{env.get('ENVIRONMENT_STAGE', '')}') — refusing to run")
+        raise GuardError(f"the target must be declared as stage 'dev' (found "
+                         f"'{env.get('ENVIRONMENT_STAGE') or ''}' in {source}) — refusing to run")
     url = _norm_url(env.get("DATAVERSE_URL"))
     if not url.startswith("https://"):
-        raise GuardError(".env.dev must declare DATAVERSE_URL=https://<org>.crm<n>.dynamics.com")
+        raise GuardError(f"DATAVERSE_URL=https://<org>.crm<n>.dynamics.com is missing in {source}")
     for other in (".env.uat", ".env.prod"):
         op = repo_root / other
         if op.is_file() and _norm_url(read_dotenv(op).get("DATAVERSE_URL")) == url:
-            raise GuardError(f"DATAVERSE_URL in .env.dev is the same as in {other} — refusing to run")
-    return {"url": url, "tenant": env.get("TENANT_ID") or None, "env_file": str(env_path)}
+            raise GuardError(f"the dev URL from {source} is the same as in {other} — refusing to run")
+    return {"url": url, "tenant": tenant or env.get("TENANT_ID") or None, "source": source}
 
 
 # --------------------------------------------------------------------------- #
@@ -869,7 +877,7 @@ def normalise_column(attr, typed, lcid):
 
 def read_server(api, meta, choices, tables):
     lcid = model_lcid(meta)
-    prefix, pc, scope, choice_prefix = prefixes(meta)
+    prefix, scope = prefixes(meta)
     solution = meta["publisher"]["solution"]
     state = {"solution_id": check_solution(api, solution), "components": set(),
              "choices": {}, "tables": {}, "scope_choices": [], "scope_tables": []}
@@ -1249,7 +1257,7 @@ def _fmt(v):
 
 def render_plan(plan):
     print(bold("Dataverse metadata plan"))
-    print(f"  env      : {plan['env_url']} ({plan['env_file']})")
+    print(f"  env      : {plan['env_url']} ({plan['env_source']})")
     print(f"  solution : {plan['solution']} (unmanaged)")
     if plan.get("az_account"):
         print(f"  az user  : {plan['az_account']}")
@@ -1312,9 +1320,9 @@ def _validated_model(model_arg):
     return model_dir, {"meta": meta, "choices": choices, "tables": tables}
 
 
-def compute_plan(model_arg, strong=False):
+def compute_plan(model_arg, strong=False, env_args=None):
     model_dir, model = _validated_model(model_arg)
-    env = dev_environment(find_repo_root(model_dir))
+    env = dev_environment(find_repo_root(model_dir), **(env_args or {}))
     api = Api(env, strong=strong)
     account = az_json(["account", "show"])
     state = read_server(api, model["meta"], model["choices"], model["tables"])
@@ -1323,7 +1331,7 @@ def compute_plan(model_arg, strong=False):
     plan = {
         "plan_version": PLAN_VERSION,
         "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-        "env_url": env["url"], "env_file": env["env_file"],
+        "env_url": env["url"], "env_source": env["source"],
         "az_account": f"{(account or {}).get('user', {}).get('name', '?')} (tenant {(account or {}).get('tenantId', '?')})",
         "solution": model["meta"]["publisher"]["solution"],
         "model_dir": str(model_dir), "model_hash": _model_hash(model_dir),
@@ -1364,7 +1372,7 @@ def cmd_validate(args):
 
 
 def cmd_plan(args):
-    model_dir, _model, _env, _api, plan = compute_plan(args.model)
+    model_dir, _model, _env, _api, plan = compute_plan(args.model, env_args=env_inputs(args))
     out = Path(args.out) if args.out else find_repo_root(model_dir) / PLAN_DIR / "plan.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(plan, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
@@ -1397,8 +1405,8 @@ def cmd_doctor(args):
     model_dir = find_model_dir(Path(args.model)) if args.model else None
     try:
         root = find_repo_root(model_dir or Path.cwd())
-        env = dev_environment(root)
-        line(True, f"dev guard: {env['env_file']} → {env['url']}")
+        env = dev_environment(root, **env_inputs(args))
+        line(True, f"dev guard: {env['source']} → {env['url']}")
     except GuardError as e:
         line(False, "dev guard", str(e))
         return 1
@@ -1406,7 +1414,7 @@ def cmd_doctor(args):
         account = az_json(["account", "show"])
         line(True, f"az session: {account.get('user', {}).get('name')} (tenant {account.get('tenantId')})")
         if env["tenant"] and account.get("tenantId", "").lower() != env["tenant"].lower():
-            print(yellow(f"      ⚠ active az tenant differs from TENANT_ID in .env.dev — the token is requested for {env['tenant']}"))
+            print(yellow(f"      ⚠ active az tenant differs from the configured TENANT_ID — the token is requested for {env['tenant']}"))
         api = Api(env)
         api.token()
         line(True, "access token for the dev environment")
@@ -1538,7 +1546,7 @@ class Applier:
             p["DateTimeBehavior"] = {"Value": BEHAVIOR_TO_API[behavior]}
             p["ImeMode"] = "Inactive"
         elif ctype in CHOICE_TYPES:
-            # Bind by MetadataId — see ppbp-dv-global-choices.
+            # Bind the global Choice by MetadataId.
             p["GlobalOptionSet@odata.bind"] = f"GlobalOptionSetDefinitions({self.choice_id(col['choice'])})"
             if ctype == "choice" and col.get("default") is not None:
                 p["DefaultFormValue"] = int(col["default"])
@@ -1779,7 +1787,7 @@ def cmd_apply(args):
     if saved.get("plan_version") != PLAN_VERSION:
         print(red("ERROR: unsupported plan file version — re-run plan."), file=sys.stderr)
         return 1
-    _model_dir, model, _env, api, fresh = compute_plan(args.model)
+    _model_dir, model, _env, api, fresh = compute_plan(args.model, env_args=env_inputs(args))
     if _canonical(fresh) != _canonical(saved):
         print(red("ERROR: stale plan — the model or the server changed since it was computed.\n"
                   "Re-run plan, review it again, and apply the new plan file."), file=sys.stderr)
@@ -1817,7 +1825,7 @@ def cmd_apply(args):
     if failure:
         print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
         return 1
-    _, _, _, _, after = compute_plan(args.model, strong=True)
+    _, _, _, _, after = compute_plan(args.model, strong=True, env_args=env_inputs(args))
     if after["actions"] or after["blocked"]:
         # Read with Consistency: Strong, so this is a real gap, not cache lag.
         print(red("Post-apply check FAILED — the environment still differs from the model "
@@ -1837,15 +1845,18 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("doctor", help="check tooling, az session, dev guard and solution")
     p.add_argument("model", nargs="?", help="model dir (enables the solution check)")
+    add_env_args(p)
     p = sub.add_parser("validate", help="offline validation of the model or one file")
     p.add_argument("path")
     p = sub.add_parser("plan", help="read-only diff against the dev environment")
     p.add_argument("model")
     p.add_argument("--out", help=f"plan file (default <repo-root>/{PLAN_DIR}/plan.json)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    add_env_args(p)
     p = sub.add_parser("apply", help="execute a saved plan (aborts if stale)")
     p.add_argument("model")
     p.add_argument("--plan-file", required=True)
+    add_env_args(p)
     args = ap.parse_args(argv)
     try:
         return {"doctor": cmd_doctor, "validate": cmd_validate,

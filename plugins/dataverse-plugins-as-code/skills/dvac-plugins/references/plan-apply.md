@@ -6,7 +6,7 @@
 
 ```
 Dataverse plug-in plan
-  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev)
+  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev — or command-line flags / environment variables)
   az user  : dev@contoso.com (tenant 0000…)
   package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
              plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.3.nupkg  sha256 1f0c9a7e5b21
@@ -122,11 +122,11 @@ A blocked change is never run. The plan exits with code 1, and `apply` refuses a
 |---|---|---|
 | `pac plugin push failed` … types used by steps | The new code removes a class still used by a step or Custom API | Remove those steps from the YAML in the same change (deletes run before the push) |
 | `pac plugin push failed` … authentication | The pac profile has no access to the dev environment | Authenticate the PAC CLI (`dataverse:dv-connect`), then re-plan |
-| `pac plugin push failed` after a major or minor version change of an assembly | Dataverse treats it as a different assembly | Go back to the registered major.minor; bump build or revision only (`ppbp-dv-plugin-build`) |
+| `pac plugin push failed` after a major or minor version change of an assembly | Dataverse treats it as a different assembly | Go back to the registered major.minor; bump build or revision only |
 | `plugin type '…' not found … after upload` | Namespace or class name wrong, or the class doesn't implement `IPlugin` | Fix the YAML or the code, rebuild, re-plan |
 | `message '…' is not available on table '…'` | The message doesn't support that table | Check the message/table pair |
 | Package create fails on the name | The name doesn't carry the solution publisher's prefix | Use `{prefix}_{NuGet id}` |
-| `REFUSED: … MANAGED` | The target is not the dev environment | Check `.env.dev`; never change a managed solution |
+| `REFUSED: … MANAGED` | The target is not the dev environment | Check the dev environment inputs (flags, environment variables or `.env.dev`); never change a managed solution |
 | `az … failed` | No `az` session, or the wrong tenant | `az login --tenant <TENANT_ID>` |
 
 ## To verify on the first real run

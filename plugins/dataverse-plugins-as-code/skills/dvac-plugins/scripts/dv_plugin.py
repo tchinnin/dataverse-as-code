@@ -7,7 +7,7 @@ Reads ``*.dv.plugin.yaml`` files, one per plug-in project, next to its .csproj::
 
     plugins/<PluginName>/<PluginName>.dv.plugin.yaml
 
-Each file describes a plug-in package (recommended) or a plug-in assembly, its
+Each file describes a plug-in package or a plug-in assembly, its
 steps and step images, and the Custom APIs it implements. The tool reconciles
 them with a Dataverse **dev** environment, Terraform style:
 
@@ -75,7 +75,7 @@ REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 
 EXT = ".dv.plugin.yaml"
 PLAN_DIR = ".dv-plugin"
-PLAN_VERSION = 1
+PLAN_VERSION = 2
 API_VERSION = "v9.2"
 # Associates a created component with a solution. The documented name is
 # MSCRM.SolutionUniqueName — an unknown header is silently ignored by Dataverse and
@@ -188,12 +188,19 @@ class Report:
         self.warnings.append(f"[{where}] {msg}")
 
 
+ENV_KEYS = ("DATAVERSE_URL", "ENVIRONMENT_STAGE", "TENANT_ID")
+ENV_HELP = ("provide the dev environment with --env-url <url> --stage dev [--tenant <id>], "
+            "or the DATAVERSE_URL / ENVIRONMENT_STAGE=dev / TENANT_ID environment variables, "
+            "or a <repo-root>/.env.dev file with the same keys")
+
+
 def find_repo_root(start: Path) -> Path:
+    """Nearest folder holding .env.dev or .git; the current directory otherwise."""
     p = start.resolve()
     for candidate in [p, *p.parents]:
         if (candidate / ".env.dev").is_file() or (candidate / ".git").exists():
             return candidate
-    raise GuardError("cannot find the repository root (no .env.dev or .git above the model)")
+    return Path.cwd().resolve()
 
 
 def read_dotenv(path: Path):
@@ -217,24 +224,44 @@ def _norm_url(u):
     return (u or "").strip().lower().rstrip("/")
 
 
-def dev_environment(repo_root: Path):
-    """Local half of the guard: .env.dev only, stage=dev, URL distinct from uat/prod."""
+def add_env_args(parser):
+    g = parser.add_argument_group("dev environment (overrides environment variables and .env.dev)")
+    g.add_argument("--env-url", help="Dataverse URL of the dev environment")
+    g.add_argument("--stage", help="declared stage of that environment — must be 'dev'")
+    g.add_argument("--tenant", help="Entra tenant id used for the az token")
+
+
+def env_inputs(args):
+    return {"url": getattr(args, "env_url", None), "stage": getattr(args, "stage", None),
+            "tenant": getattr(args, "tenant", None)}
+
+
+def _env_source(repo_root: Path, url=None, stage=None, tenant=None):
+    """The first source that names a URL wins; URL and stage never mix sources."""
+    if url or stage:
+        return "command-line flags", {"DATAVERSE_URL": url, "ENVIRONMENT_STAGE": stage, "TENANT_ID": tenant}
+    if os.environ.get("DATAVERSE_URL") or os.environ.get("ENVIRONMENT_STAGE"):
+        return "environment variables", {k: os.environ.get(k) for k in ENV_KEYS}
     env_path = repo_root / ".env.dev"
-    if not env_path.is_file():
-        raise GuardError(f"{env_path} not found — this tool only runs against the dev environment "
-                         f"described in .env.dev (see ppbp-init)")
-    env = read_dotenv(env_path)
+    if env_path.is_file():
+        return str(env_path), read_dotenv(env_path)
+    raise GuardError("no dev environment given — " + ENV_HELP)
+
+
+def dev_environment(repo_root: Path, url=None, stage=None, tenant=None):
+    """Local half of the guard: one source, declared stage=dev, URL distinct from uat/prod."""
+    source, env = _env_source(repo_root, url, stage, tenant)
     if (env.get("ENVIRONMENT_STAGE") or "").lower() != "dev":
-        raise GuardError(f".env.dev must declare ENVIRONMENT_STAGE=dev (found "
-                         f"'{env.get('ENVIRONMENT_STAGE', '')}') — refusing to run")
+        raise GuardError(f"the target must be declared as stage 'dev' (found "
+                         f"'{env.get('ENVIRONMENT_STAGE') or ''}' in {source}) — refusing to run")
     url = _norm_url(env.get("DATAVERSE_URL"))
     if not url.startswith("https://"):
-        raise GuardError(".env.dev must declare DATAVERSE_URL=https://<org>.crm<n>.dynamics.com")
+        raise GuardError(f"DATAVERSE_URL=https://<org>.crm<n>.dynamics.com is missing in {source}")
     for other in (".env.uat", ".env.prod"):
         op = repo_root / other
         if op.is_file() and _norm_url(read_dotenv(op).get("DATAVERSE_URL")) == url:
-            raise GuardError(f"DATAVERSE_URL in .env.dev is the same as in {other} — refusing to run")
-    return {"url": url, "tenant": env.get("TENANT_ID") or None, "env_file": str(env_path)}
+            raise GuardError(f"the dev URL from {source} is the same as in {other} — refusing to run")
+    return {"url": url, "tenant": tenant or env.get("TENANT_ID") or None, "source": source}
 
 
 def az_path():
@@ -430,7 +457,7 @@ def message_property(step, image):
 
 def desired_image(step, image):
     return {"name": image["name"], "alias": image.get("alias", image["name"]), "type": image["type"],
-            "attributes": sorted(a.lower() for a in image["attributes"]),
+            "attributes": sorted(a.lower() for a in image.get("attributes") or []),
             "message_property": message_property(step, image)}
 
 
@@ -589,9 +616,7 @@ def validate_unit(path: Path, r: Report):
     spec = data[kind]
     if not path.name.endswith(EXT):
         r.error(where, f"model files must end with {EXT}")
-    if kind == "assembly":
-        r.warn(where, "assembly registration — prefer a plug-in package; keep assemblies for existing projects")
-    elif not spec["name"].lower().startswith(prefix + "_"):
+    if kind == "package" and not spec["name"].lower().startswith(prefix + "_"):
         r.error(where, f"package name must start with the publisher prefix '{prefix}_'")
 
     try:
@@ -616,7 +641,7 @@ def validate_unit(path: Path, r: Report):
             r.error(w, f"plugin type '{typename}' is not a class of this project "
                        "(Namespace.ClassName, case-sensitive)")
         elif typename not in plugins:
-            r.warn(w, f"'{typename}' does not derive from PluginBase or implement IPlugin "
+            r.warn(w, f"'{typename}' does not implement IPlugin, directly or through a base class "
                       "(as far as the source scan can tell)")
 
     apis = {k.lower(): v or {} for k, v in (data.get("custom_apis") or {}).items()}
@@ -633,9 +658,6 @@ def validate_unit(path: Path, r: Report):
         stage, mode = step["stage"], step.get("mode", "sync")
         if mode == "async" and stage != "post-operation":
             r.error(w, "async steps run only in post-operation")
-        if msg == "update" and not step.get("filtering_attributes"):
-            r.error(w, "an Update step without filtering_attributes fires on every update — "
-                       "list the columns that trigger it")
         if step.get("filtering_attributes") and msg != "update":
             r.warn(w, "filtering_attributes are used only by Update steps")
         if "async_auto_delete" in step and mode != "async":
@@ -660,9 +682,6 @@ def validate_unit(path: Path, r: Report):
                 r.error(iw, "Delete has no post-image")
             if itype in ("post", "both") and stage != "post-operation":
                 r.error(iw, "post-images exist only in post-operation")
-            elif itype in ("post", "both") and mode == "sync":
-                r.warn(iw, "post-image on a synchronous step adds a read to every execution — "
-                           "keep it only when post-commit values are needed")
             if not message_property(step, img):
                 r.error(iw, f"set 'message_property' — no default for message '{step['message']}'")
 
@@ -680,8 +699,6 @@ def validate_unit(path: Path, r: Report):
             check_plugin(w, aspec["plugin"])
         else:
             r.warn(w, "no plugin — the Custom API has no main operation")
-        if not aspec.get("description"):
-            r.warn(w, "Custom API has no description")
         if aspec.get("is_function") and not aspec.get("response"):
             r.error(w, "a function must have at least one response property")
         for section in ("request", "response"):
@@ -737,6 +754,11 @@ def _or_filter(field, ids):
 
 def _attrs(text):
     return sorted(a.strip().lower() for a in (text or "").split(",") if a.strip())
+
+
+def _cols(attrs):
+    """Image columns for display — an empty list captures every column."""
+    return ", ".join(attrs) or "all columns"
 
 
 def _low(v):
@@ -1082,7 +1104,7 @@ def diff(units, server):
                 act("create", "step", unit, want["name"], detail=_step_detail(want))
                 for wi in want["images"].values():
                     act("create", "image", unit, f"{want['name']} / {wi['name']}", step=want["name"],
-                        image=wi["name"], detail=f"{wi['type']} ({', '.join(wi['attributes'])})")
+                        image=wi["name"], detail=f"{wi['type']} ({_cols(wi['attributes'])})")
                 continue
             changes = {}
             for field in ("plugin", "message", "table", "stage", "mode", "rank", "filtering_attributes",
@@ -1109,7 +1131,7 @@ def diff(units, server):
                 iname = f"{want['name']} / {wi['name']}"
                 extra = {"step": want["name"], "image": wi["name"]}
                 if hi is None:
-                    act("create", "image", unit, iname, detail=f"{wi['type']} ({', '.join(wi['attributes'])})", **extra)
+                    act("create", "image", unit, iname, detail=f"{wi['type']} ({_cols(wi['attributes'])})", **extra)
                     continue
                 ichanges = {f: [hi.get(f), wi[f]] for f in ("alias", "type", "attributes", "message_property")
                             if hi.get(f) != wi[f]}
@@ -1119,7 +1141,7 @@ def diff(units, server):
             for ikey in sorted(set(have["images"]) - set(want["images"]) - dup_images):
                 hi = have["images"][ikey]
                 act("delete", "image", unit, f"{want['name']} / {hi['name']}", id=hi["id"],
-                    detail=f"{hi['type']} ({', '.join(hi['attributes'])})")
+                    detail=f"{hi['type']} ({_cols(hi['attributes'])})")
         for key in sorted(set(srv["steps"]) - model_steps - duplicates):
             hs = srv["steps"][key]
             images = f", and its {len(hs['images'])} image(s)" if hs["images"] else ""
@@ -1144,7 +1166,7 @@ def _fmt(v):
 
 def render_plan(plan):
     print(bold("Dataverse plug-in plan"))
-    print(f"  env      : {plan['env_url']} ({plan['env_file']})")
+    print(f"  env      : {plan['env_url']} ({plan['env_source']})")
     if plan.get("az_account"):
         print(f"  az user  : {plan['az_account']}")
     for u in plan["units"]:
@@ -1210,8 +1232,7 @@ def _validated_units(path_arg):
     units = [build_unit(f, load_yaml(f)) for f in find_files(path)]
     missing = [u["name"] for u in units if u["artifact"] is None]
     if missing:
-        raise SystemExit(f"ERROR: no build output for {', '.join(missing)} — build the project first "
-                         "(ppbp-dv-plugin-build)")
+        raise SystemExit(f"ERROR: no build output for {', '.join(missing)} — build the project first")
     return units
 
 
@@ -1222,10 +1243,10 @@ def _rel(path, root):
         return str(path)
 
 
-def compute_plan(path_arg, strong=False):
+def compute_plan(path_arg, strong=False, env_args=None):
     units = _validated_units(path_arg)
     root = find_repo_root(units[0]["file"].parent)
-    env = dev_environment(root)
+    env = dev_environment(root, **(env_args or {}))
     api = Api(env, strong=strong)
     account = az_json(["account", "show"])
     server = read_server(api, units)
@@ -1233,7 +1254,7 @@ def compute_plan(path_arg, strong=False):
     plan = {
         "plan_version": PLAN_VERSION,
         "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-        "env_url": env["url"], "env_file": env["env_file"],
+        "env_url": env["url"], "env_source": env["source"],
         "az_account": f"{(account or {}).get('user', {}).get('name', '?')} (tenant {(account or {}).get('tenantId', '?')})",
         "units": [{"file": _rel(u["file"], root), "kind": u["kind"], "name": u["name"], "solution": u["solution"],
                    "artifact": {"path": _rel(u["artifact"]["path"], root), "sha256": u["artifact"]["sha256"],
@@ -1264,7 +1285,7 @@ def cmd_validate(args):
 
 
 def cmd_plan(args):
-    root, _units, _env, _api, _server, plan = compute_plan(args.path)
+    root, _units, _env, _api, _server, plan = compute_plan(args.path, env_args=env_inputs(args))
     out = Path(args.out) if args.out else root / PLAN_DIR / "plan.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(plan, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
@@ -1317,8 +1338,8 @@ def cmd_doctor(args):
     files = find_files(Path(args.path)) if args.path else []
     try:
         root = find_repo_root(files[0].parent if files else Path.cwd())
-        env = dev_environment(root)
-        line(True, f"dev guard: {env['env_file']} → {env['url']}")
+        env = dev_environment(root, **env_inputs(args))
+        line(True, f"dev guard: {env['source']} → {env['url']}")
     except GuardError as e:
         line(False, "dev guard", str(e))
         return 1
@@ -1333,7 +1354,7 @@ def cmd_doctor(args):
         account = az_json(["account", "show"])
         line(True, f"az session: {account.get('user', {}).get('name')} (tenant {account.get('tenantId')})")
         if env["tenant"] and account.get("tenantId", "").lower() != env["tenant"].lower():
-            print(yellow(f"      ⚠ active az tenant differs from TENANT_ID in .env.dev — the token is requested for {env['tenant']}"))
+            print(yellow(f"      ⚠ active az tenant differs from the configured TENANT_ID — the token is requested for {env['tenant']}"))
         api = Api(env)
         api.token()
         line(True, "access token for the dev environment")
@@ -1356,7 +1377,7 @@ def cmd_doctor(args):
         except (zipfile.BadZipFile, ValueError, OSError, ET.ParseError) as e:
             art, why = None, str(e)
         else:
-            why = "build the project (ppbp-dv-plugin-build)"
+            why = "build the project"
         line(art is not None, f"{f.name}: build output " + (art["path"] if art else "missing"), why)
     return 0 if ok else 1
 
@@ -1644,7 +1665,7 @@ class Applier:
         wi = self.step_spec(unit, a["step"])["images"][a["image"].lower()]
         self.post(unit, "sdkmessageprocessingstepimages", {
             "name": wi["name"], "entityalias": wi["alias"], "imagetype": IMAGE_TYPE_TO_API[wi["type"]],
-            "attributes": ",".join(wi["attributes"]), "messagepropertyname": wi["message_property"],
+            "attributes": ",".join(wi["attributes"]) or None, "messagepropertyname": wi["message_property"],
             "sdkmessageprocessingstepid@odata.bind": f"/sdkmessageprocessingsteps({self.step_id(a)})",
         })
 
@@ -1658,7 +1679,7 @@ class Applier:
             if field == "type":
                 body["imagetype"] = IMAGE_TYPE_TO_API[new]
             elif field == "attributes":
-                body["attributes"] = ",".join(new)
+                body["attributes"] = ",".join(new) or None
             else:
                 body[IMAGE_FIELD_TO_API[field]] = new
         self.patch(f"sdkmessageprocessingstepimages({a['id']})", body)
@@ -1678,7 +1699,7 @@ def cmd_apply(args):
     if saved.get("plan_version") != PLAN_VERSION:
         print(red("ERROR: unsupported plan file version — re-run plan."), file=sys.stderr)
         return 1
-    _root, units, env, api, server, fresh = compute_plan(args.path)
+    _root, units, env, api, server, fresh = compute_plan(args.path, env_args=env_inputs(args))
     if _canonical(fresh) != _canonical(saved):
         print(red("ERROR: stale plan — the model, the build output or the server changed since it was computed.\n"
                   "Re-run plan, review it again, and apply the new plan file."), file=sys.stderr)
@@ -1708,7 +1729,7 @@ def cmd_apply(args):
     if failure:
         print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
         return 1
-    *_, after = compute_plan(args.path, strong=True)
+    *_, after = compute_plan(args.path, strong=True, env_args=env_inputs(args))
     if after["actions"] or after["blocked"]:
         print(red("Post-apply check FAILED — the environment still differs from the model after apply "
                   "(read with Consistency: Strong). Remaining differences:"))
@@ -1751,7 +1772,9 @@ def export_document(kind, name, srv, apis, solution, prefix):
             img = {"name": i["name"]}
             if i["alias"] and i["alias"] != i["name"]:
                 img["alias"] = i["alias"]
-            img.update({"type": i["type"], "attributes": i["attributes"]})
+            img["type"] = i["type"]
+            if i["attributes"]:
+                img["attributes"] = i["attributes"]
             if i["message_property"] != MESSAGE_PROPERTY.get(s["message"].lower()):
                 img["message_property"] = i["message_property"]
             images.append(img)
@@ -1806,7 +1829,7 @@ def export_document(kind, name, srv, apis, solution, prefix):
 def cmd_export(args):
     _require_yaml()
     root = find_repo_root(Path.cwd())
-    env = dev_environment(root)
+    env = dev_environment(root, **env_inputs(args))
     api = Api(env)
     check_solution(api, args.solution)
     rows = api.get_all("solutions?$select=uniquename&$expand=publisherid($select=customizationprefix)"
@@ -1848,21 +1871,25 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("doctor", help="check tooling, az + pac sessions, dev guard, solutions, build output")
     p.add_argument("path", nargs="?", help="model file or folder (enables solution and build checks)")
+    add_env_args(p)
     p = sub.add_parser("validate", help="offline validation of a model file or folder")
     p.add_argument("path")
     p = sub.add_parser("plan", help="read-only diff against the dev environment")
     p.add_argument("path")
     p.add_argument("--out", help=f"plan file (default <repo-root>/{PLAN_DIR}/plan.json)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    add_env_args(p)
     p = sub.add_parser("apply", help="execute a saved plan (aborts if stale)")
     p.add_argument("path")
     p.add_argument("--plan-file", required=True)
+    add_env_args(p)
     p = sub.add_parser("export", help="print the YAML of an existing package or assembly (adoption)")
     p.add_argument("--solution", required=True, help="unmanaged dev solution the registrations belong to")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--package", help="plug-in package unique name")
     g.add_argument("--assembly", help="plug-in assembly name")
     p.add_argument("--out", help="write to this file instead of stdout")
+    add_env_args(p)
     args = ap.parse_args(argv)
     try:
         return {"doctor": cmd_doctor, "validate": cmd_validate, "plan": cmd_plan,

@@ -1,7 +1,7 @@
 ---
 name: dvac-plugins
 description: >
-  Dataverse plug-in registrations as code: plug-in packages (or legacy assemblies),
+  Dataverse plug-in registrations as code: plug-in packages or assemblies,
   steps, step images and Custom APIs are described in <PluginName>.dv.plugin.yaml
   next to the project and reconciled with the dev environment through a
   Terraform-style plan → confirm → apply loop. Use when the user wants to register,
@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 ## Official skill
@@ -27,31 +27,34 @@ No official Microsoft skill covers plug-in registration. Two parts of the offici
 
 If the `dataverse` plugin is not installed, **strongly recommend the user install it** before proceeding.
 
-## Companion plugins
+## Best practices
 
-Plug-in project, step and Custom API conventions are owned by the `ppbp-dataverse-plugins` plugin of the `powerplatform-bestpractices` marketplace (`ppbp-dv-plugins-overview`, `ppbp-dv-plugin-build`, `ppbp-dv-step-plugin`, `ppbp-dv-custom-api`). `ppbp-init` creates `.env.dev`. If those skills are not available, **recommend the user install them**; this skill never restates them.
+This skill defines the registration format and the tooling, **not** how to design or build plug-ins. Project structure, base classes, step and image design, Custom API design, versioning and build are the project's best practices. The validator only enforces Dataverse platform rules (publisher prefix, stages, images, Custom API constraints) and checks that the registered classes exist.
+
+Before writing the model, look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. If there are none, work from the user's request and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
-- **The target is described in `<repo-root>/.env.dev`.** The tool never reads any other environment file for its target.
+- **The tool needs the dev environment URL and its declared stage (`dev`)**, plus the tenant when the account spans several. It takes them from one source: `--env-url/--stage/--tenant` flags, else the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, else a `<repo-root>/.env.dev` file. Details in [`references/prerequisites.md`](references/prerequisites.md#3-dev-environment-inputs).
+- If none is available, ask the user for the URL and tenant. Suggest a committed `.env.dev` as a convenient option (for example created by `ppbp-init`), never require it.
 - **The Web API uses the Azure CLI token** (`az login`, with `--tenant <TENANT_ID>` when the account spans several tenants).
-- **`pac plugin push` uses the active PAC CLI profile.** The tool always passes it the `.env.dev` URL explicitly.
+- **`pac plugin push` uses the active PAC CLI profile.** The tool always passes it the dev URL explicitly.
 - Before any change, confirm the target URL, the `az` account and the pac profile with the user.
 
 ## Repository layout
 
 ```
 <repo-root>/
-├── .env.dev                              # dev environment descriptor — the only target of the tool
+├── .env.dev                              # optional — one way to describe the dev environment
 ├── .dv-plugin/                           # plan files (gitignored)
 └── plugins/
-    └── <PluginName>/                     # one subfolder per plug-in project
+    └── <PluginName>/                     # the plug-in project (any layout; the YAML sits next to the .csproj)
         ├── <PluginName>.csproj
         └── <PluginName>.dv.plugin.yaml   # REGISTRATIONS AS CODE — package, steps, images, Custom APIs
 ```
 
 - **`<PluginName>.dv.plugin.yaml` is the source of truth for what is registered.** Commit it with the code, including the `id` the tool records.
-- The project layout itself (`PluginBase.cs`, `Models/`, scaffolding) is owned by `ppbp-dv-plugins-overview`.
+- The tool only needs the `.csproj` folder and its build output; the rest of the project layout is up to the project.
 
 ## What this skill adds
 
@@ -122,7 +125,7 @@ custom_apis:
 ## Deployment lifecycle
 
 1. **First apply.** The tool uploads the built `.nupkg` as base64 to `pluginpackages` (or the `.dll` to `pluginassemblies`) and records the returned `id` in the YAML.
-2. **Every later build.** `plan` compares the SHA-256 of the build output with the server content. When they differ, `apply` runs `pac plugin push --pluginId <id> --environment <.env.dev URL>`.
+2. **Every later build.** `plan` compares the SHA-256 of the build output with the server content. When they differ, `apply` runs `pac plugin push --pluginId <id> --environment <dev URL>`.
    - The tool always passes the dev URL to `pac`, whatever environment the active pac profile points to.
    - The package version is **not** a deployment signal. Dataverse does not use it to decide an update, and a package's version cannot be changed after creation.
 3. **Solution membership.** Every component lands in `publisher.solution`:
@@ -133,12 +136,12 @@ The phase order and the exact payloads are in [`references/plan-apply.md`](refer
 
 ## Safety model
 
-- **Dev only, enforced by the tool.** The guard is the same as for metadata as code:
-  - only `<repo-root>/.env.dev` is read, with `ENVIRONMENT_STAGE=dev`
-  - its URL must differ from the ones in `.env.uat` and `.env.prod`
-  - every target solution must exist and be unmanaged
+- **Dev only, enforced by the tool.** The guard is the same as for metadata as code. Whatever the source of the environment inputs:
+  - the target must be declared as stage `dev`
+  - its URL must differ from the ones in `.env.uat` and `.env.prod`, when those files exist
+  - every target solution must exist and be unmanaged (checked on the server)
 
-  There is no flag to override it. UAT and prod receive the registrations through the managed solution (`ppbp-alm-pipelines`).
+  There is no flag to override it. UAT and prod receive the registrations through the managed solution and the project's ALM pipeline.
 - **Two sessions.** The Web API uses the developer's `az login` token, and `pac plugin push` uses the active PAC CLI profile. `doctor` shows both. Setup is in [`references/prerequisites.md`](references/prerequisites.md).
 - **Limited deletes.** Only steps and step images are ever deleted, after double confirmation. Packages, assemblies, Custom APIs, request parameters and response properties are never deleted; they are reported as `? unmanaged`.
 
@@ -168,17 +171,14 @@ Revert the YAML, or create a new Custom API and migrate its callers. The list is
 | Writing a model for an existing project from memory | `export` the live registrations first — otherwise the steps you leave out are planned as deletes |
 | Editing or removing the `id:` in the YAML | Leave it to the tool; a wrong id is blocked, a missing one is recorded again |
 | Secrets in `configuration` | Unsecure configuration only; secrets go to a vault or environment variables, never the YAML |
-| Update steps without `filtering_attributes`, or images without an explicit column list | The validator rejects both — list the columns |
 | Bumping the package version to force a deployment | Rebuild; the tool compares content, not versions |
 | Editing `dv_plugin.py` or the JSON Schema in a project | Edit only the model files; propose tooling changes upstream |
 
 ## Skill boundaries
 
-- Plug-in domain orientation and global conventions → `ppbp-dv-plugins-overview`
-- Dataverse schema as code → `dvac-metadata`
 - Running a registration change end to end → agent `dvac-plugins-planner`
-- Project scaffolding, early-bound classes, versioning and release build → `ppbp-dv-plugin-build`
-- Step implementation (stages, images, context) → `ppbp-dv-step-plugin`
-- Custom API design and its plug-in class → `ppbp-dv-custom-api`
+- Dataverse schema as code → `dvac-metadata`
+- Project scaffolding, plug-in code, step and Custom API design, versioning and build → the project's best practices
 - PAC CLI authentication, connection diagnostics → `dataverse:dv-connect`
-- Solution creation, export and promotion → `dataverse:dv-solution`, `ppbp-alm-pipelines`
+- Solution creation, export → `dataverse:dv-solution`
+- Promotion to UAT/prod → the project's ALM pipeline

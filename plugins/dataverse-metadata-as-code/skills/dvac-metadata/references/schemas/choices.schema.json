@@ -8,9 +8,9 @@
   "properties": {
     "choices": {
       "type": "object",
-      "description": "Global Choices keyed by Schema Name: {prefix}_[{project_code}_]choice_{ChoiceName}.",
+      "description": "Global Choices keyed by Schema Name (must start with the publisher prefix).",
       "propertyNames": {
-        "pattern": "^[a-z][a-z0-9]{1,7}_([a-z0-9]+_)?choice_[A-Za-z][A-Za-z0-9]*$"
+        "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z0-9_]+$"
       },
       "additionalProperties": { "$ref": "#/definitions/choice" }
     }

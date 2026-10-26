@@ -26,7 +26,7 @@ steps:
     stage: post-operation
     mode: async
     async_auto_delete: true
-    filtering_attributes: [prfx_statuscode]    # mandatory on Update
+    filtering_attributes: [prfx_statuscode]    # only these columns trigger the step
     images:
       - name: PreImage
         type: pre

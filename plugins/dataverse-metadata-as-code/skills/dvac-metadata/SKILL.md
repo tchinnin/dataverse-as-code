@@ -15,21 +15,24 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<schema change request>"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 ## Official skill
 
 `dataverse:dv-metadata` owns how Dataverse metadata is created and modified (SDK, Web API, solution headers, publishing, error codes). Load it before this skill. If it is not installed, **strongly recommend the user install it** before proceeding. This skill adds a declarative model and the tooling that reconciles it. It does not restate the official procedures.
 
-## Companion plugins
+## Best practices
 
-The naming and design conventions the model follows — and that the validator enforces — are owned by the `ppbp-dataverse-metadata` plugin of the `powerplatform-bestpractices` marketplace (`ppbp-dv-metadata-overview`, `ppbp-dv-tables`, `ppbp-dv-columns`, `ppbp-dv-global-choices`, `ppbp-dv-metadata-review`). `ppbp-init` creates `.env.dev` and `ppbp-readme` defines the `dataverse/model/*.md` content. If those skills are not available, **recommend the user install them**; this skill never restates them.
+This skill defines the model format and the tooling, **not** how to design a schema. Names, column types, ownership, global vs. local design choices and review rules are the project's best practices. The validator only enforces Dataverse platform rules (publisher prefix, types, references, API constraints).
+
+Before writing the model, look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. If there are none, work from the user's request and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
 - **Azure CLI token only.** Sign in with `az login`, adding `--tenant <TENANT_ID>` when the account spans several tenants.
-- **The target is described in `<repo-root>/.env.dev`.** The tool never reads any other environment file for its target.
+- **The tool needs the dev environment URL and its declared stage (`dev`)**, plus the tenant when the account spans several. It takes them from one source: `--env-url/--stage/--tenant` flags, else the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, else a `<repo-root>/.env.dev` file. Details in [`references/prerequisites.md`](references/prerequisites.md#3-dev-environment-inputs).
+- If none is available, ask the user for the URL and tenant. Suggest a committed `.env.dev` as a convenient option (for example created by `ppbp-init`), never require it.
 - `dataverse:dv-connect` owns environment discovery and connection diagnostics.
 - Before any change, confirm the target URL and the active `az` account with the user.
 
@@ -37,17 +40,16 @@ The naming and design conventions the model follows — and that the validator e
 
 ```
 <repo-root>/
-├── .env.dev                              # dev environment descriptor — the only target of the tool
+├── .env.dev                              # optional — one way to describe the dev environment
 ├── .dv-metadata/                         # plan files (gitignored)
 └── dataverse/
-    ├── model/<domain>.md                 # REVIEW VIEW — Mermaid ERD + table specs + open questions
     └── metadata/                         # SOURCE OF TRUTH — metadata as code
-        ├── _meta.dv.metadata.yaml        # publisher prefix, project code, solution, locale
+        ├── _meta.dv.metadata.yaml        # publisher prefix, solution, locale
         ├── choices.dv.metadata.yaml      # every global Choice
         └── tables/<key>.dv.metadata.yaml # one table per file; file name = key
 ```
 
-- **`dataverse/metadata/` wins** when it disagrees with `dataverse/model/*.md`. Update both in the same change; open questions live only in the `.md`.
+- **`dataverse/metadata/` is the source of truth.** If the project keeps a human-readable view of the model (ERD, design docs), update it in the same change; the YAML wins on conflict.
 - The `*.dv.metadata.yaml` suffix leaves room for future `dataverse/*` model families that follow the same pattern.
 
 ## What this skill adds
@@ -58,7 +60,7 @@ The naming and design conventions the model follows — and that the validator e
 | Subcommand | Touches the server | Purpose |
 |---|---|---|
 | `doctor [model-dir]` | read | Checks deps, the `az` session, the dev guard and that the solution is unmanaged |
-| `validate <dir\|file>` | no | Structural (JSON Schema) + semantic checks (naming, references, conventions) |
+| `validate <dir\|file>` | no | Structural (JSON Schema) + semantic checks (platform rules, references) |
 | `plan <model-dir> [--json]` | read | Diff → `+ create` / `~ update` (field `old → new`) / `! blocked` / `? unmanaged` |
 | `apply <model-dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. Never deletes. |
 
@@ -71,14 +73,13 @@ Run the script from the plugin's skill folder: `python3 <this-skill>/scripts/dv_
 
 Delegate schema changes to the **`dvac-metadata-planner`** agent. It runs in two invocations:
 
-1. **Planning run.** The agent edits the YAML model and the matching `dataverse/model/<domain>.md`, validates them, runs `plan`, and returns:
+1. **Planning run.** The agent edits the YAML model, validates it, runs `plan`, and returns:
    - the target environment and solution
    - every create, update, blocked and unmanaged item
    - the items that need double confirmation
 2. **The main thread shows that plan to the user.** Ask for explicit confirmation of the environment and of the exact change list. Ask **twice** for each item that needs double confirmation:
-   - Organization-owned tables
-   - `money` columns
-   - auditing turned on
+   - Organization-owned tables (ownership is permanent)
+   - lookups with cascade delete (child rows are deleted with the parent)
 3. **Apply run.** Re-invoke the agent with `approved: <plan file>`. It runs `apply`, then checks that the follow-up plan is empty.
 
 Never run `apply` without a plan the user has just seen. Never apply a plan that contains blocked items.
@@ -90,7 +91,7 @@ Never run `apply` without a plan the user has just seen. Never apply a plan that
 version: "1.0"
 publisher:
   prefix: prfx
-  project_code: crm        # optional — when set, tables and Choices are prfx_crm_…
+  scope: prfx_crm_         # optional — limits the "? unmanaged" report to prfx_crm_… components
   solution: prfx_crm_Core  # unmanaged solution in dev
 locale: en
 ```
@@ -98,19 +99,19 @@ locale: en
 - `choices.dv.metadata.yaml` holds every global Choice.
 - `tables/<key>.dv.metadata.yaml` holds one table per file, and the file name must equal `key`.
 - Labels are plain strings in the base language, or `{LCID: text}` maps when `languages` is set in `_meta` — see [`references/format.md`](references/format.md#localization).
-- YAML keys are **Schema Names**. The naming conventions they follow are in `ppbp-dv-tables`, `ppbp-dv-columns` and `ppbp-dv-global-choices`, and the validator enforces them.
+- YAML keys are **Schema Names**. They must start with the publisher prefix; the rest follows the project's best practices.
 - Every attribute, per column type, is listed in [`references/format.md`](references/format.md). Annotated samples are in [`references/samples/`](references/samples/).
 - Attributes you leave out of the YAML are **not managed**. The tool never resets them on the server. The exceptions are `label`, `type`, `required`/`required_level` and table `auditing`, which always have a managed default.
 
 ## Safety model
 
-- **Dev only, enforced by the tool.** It reads only `<repo-root>/.env.dev` (created by `ppbp-init`), and refuses to run unless all of these hold:
-  - `ENVIRONMENT_STAGE=dev`
-  - the URL differs from the ones in `.env.uat` and `.env.prod`
-  - the model's solution exists **and is unmanaged**
+- **Dev only, enforced by the tool.** Whatever the source of the environment inputs, the tool refuses to run unless all of these hold:
+  - the target is declared as stage `dev`
+  - its URL differs from the ones in `.env.uat` and `.env.prod`, when those files exist
+  - the model's solution exists **and is unmanaged** (checked on the server)
 
-  This enforces the ALM rule in `ppbp-alm-overview`: UAT and prod only receive managed imports. There is no flag to override the guard.
-- **Azure CLI token.** The tool authenticates with the developer's `az login` session. Use `az login --tenant <TENANT_ID>` when the account spans several tenants. Prerequisites and fixes are in [`references/prerequisites.md`](references/prerequisites.md).
+  UAT and prod receive changes only as managed solution imports, through the project's ALM pipeline. There is no flag to override the guard.
+- **Azure CLI token.** The tool authenticates with the developer's `az login` session. Prerequisites and fixes are in [`references/prerequisites.md`](references/prerequisites.md).
 - **Never destructive.** Changes that would need a delete or recreate are `! blocked`. Server components that aren't in the model are `? unmanaged`, reported only. Removing anything is a manual, deliberate act outside this tool.
 
 ## Common issue: stale plan
@@ -131,19 +132,16 @@ A change made directly in the environment shows up as `~ update` (the model woul
 |---|---|
 | Writing ad-hoc Python/PowerShell scripts that create tables or columns | Describe the change in `dataverse/metadata/` and run plan → apply |
 | Running `apply` without showing the plan to the user, or reusing an old plan | Plan, show it, get confirmation, then apply that plan file |
-| Pointing the tool at UAT/prod by editing `.env.dev` or copying URLs | Only dev holds the unmanaged solution; promote through the ALM pipeline (`ppbp-alm-pipelines`) |
+| Pointing the tool at UAT/prod by declaring it as `dev` | Only dev holds the unmanaged solution; promote through the ALM pipeline |
 | Deleting server components that the plan reports as unmanaged | Either add them to the model or remove them manually after a deliberate decision — never from the agent |
 | Editing `dv_metadata.py` or the JSON Schemas in a project | Edit only the model files; propose tooling changes upstream |
-| Changing the YAML without updating `dataverse/model/<domain>.md` | Update both in the same change — the `.md` is the review view |
-| Inline option lists on a choice column | Reference a global Choice with `choice:` (`ppbp-dv-global-choices`) |
+| Inline option lists on a choice column | The format has none — reference a global Choice with `choice:` |
 
 ## Skill boundaries
 
 - Running a schema change end to end → agent `dvac-metadata-planner`
-- Schema design orientation and global conventions → `ppbp-dv-metadata-overview`
 - Plug-in registrations as code → `dvac-plugins`
-- Table, column and global Choice conventions → `ppbp-dv-tables`, `ppbp-dv-columns`, `ppbp-dv-global-choices`
-- Quality review of a model → `ppbp-dv-metadata-review`
+- Schema design conventions and reviews → the project's best practices
 - Forms, views, N:N relationships, calculated/rollup/formula columns → `dataverse:dv-metadata` (outside this model)
 - Solution creation, export, pull-to-repo → `dataverse:dv-solution`
-- Promotion to UAT/prod → `ppbp-alm-pipelines`
+- Promotion to UAT/prod → the project's ALM pipeline

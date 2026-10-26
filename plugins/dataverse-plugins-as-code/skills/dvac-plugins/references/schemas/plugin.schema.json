@@ -54,7 +54,7 @@
     },
     "assembly": {
       "type": "object",
-      "description": "Plug-in assembly (signed .dll) — for existing projects only; prefer a package.",
+      "description": "Plug-in assembly (signed .dll).",
       "required": ["name", "dll"],
       "additionalProperties": false,
       "properties": {
@@ -150,7 +150,7 @@
     },
     "image": {
       "type": "object",
-      "required": ["name", "type", "attributes"],
+      "required": ["name", "type"],
       "additionalProperties": false,
       "properties": {
         "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$", "maxLength": 256},
@@ -162,9 +162,8 @@
         "type": {"type": "string", "enum": ["pre", "post", "both"]},
         "attributes": {
           "type": "array",
-          "description": "Columns captured in the image — always explicit, never all columns.",
+          "description": "Columns captured in the image. Omitted or empty captures every column.",
           "items": {"$ref": "#/definitions/logicalName"},
-          "minItems": 1,
           "uniqueItems": true
         },
         "message_property": {

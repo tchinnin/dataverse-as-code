@@ -6,7 +6,9 @@ These are the authoring and consistency rules for this repository. Every coding 
 
 A plugin marketplace that manages Dataverse **as code**. Each plugin ships a declarative YAML model, the Python tool that reconciles it with the dev environment (plan → confirm → apply), a planner agent and a validation hook.
 
-This repo is the **implementation**. The **conventions** the models follow (naming, table/column/Choice design, plug-in project, step and Custom API design) live in the companion `powerplatform-bestpractices` marketplace (`ppbp-*` skills, https://github.com/tchinnin/powerplatform-bestpractices-skills).
+This repo is a **convention-neutral implementation**. It owns the model formats, the tooling and the safety model — never design conventions. Users model Dataverse with their own best practices, or none.
+
+**Suggested companion.** We recommend the `powerplatform-bestpractices` marketplace (`ppbp-*` skills, https://github.com/tchinnin/powerplatform-bestpractices-skills) for best practices, and its `ppbp-init` skill to create `.env.dev`. Suggest it to users who have no best practices of their own — but nothing in this repo may depend on it.
 
 **Supported agents:** Claude Code and GitHub Copilot (CLI and VS Code). Both read the same `.claude-plugin/` manifests, so one set of files serves both. Do not add manifests for other agents (`.plugin/`, `.github/plugin/`, `.cursor-plugin/`, `.codex-plugin/`, root `marketplace.json`).
 
@@ -20,22 +22,23 @@ This repo is the **implementation**. The **conventions** the models follow (nami
 | Hooks | `plugins/<plugin>/hooks/hooks.json` |
 | Plugin manifest | `plugins/<plugin>/.claude-plugin/plugin.json` |
 | Marketplace registry + marketplace version | `.claude-plugin/marketplace.json` |
-| Naming and design conventions | The `ppbp-*` skills of `powerplatform-bestpractices` — never this repo |
+| Naming and design conventions | The user's best practices — never this repo |
 | Authoring rules | This file |
 
-Never copy skills, manifests or conventions to another place (no per-plugin `AGENTS.md`/`CLAUDE.md`, no symlinks, no mirrored manifests).
+Never copy skills or manifests to another place (no per-plugin `AGENTS.md`/`CLAUDE.md`, no symlinks, no mirrored manifests).
 
-## Layering: official → best practices → as code
+## Separation of concerns
 
 1. **Official Microsoft skills** (`dataverse:dv-metadata`, `dataverse:dv-overview`, `dataverse:dv-connect`, `dataverse:dv-solution`) own how Dataverse works: APIs, CLI commands, procedures, error codes.
-2. **`ppbp-*` skills** own the team conventions.
-3. **`dvac-*` skills** (this repo) own the model format, the tool, the plan/apply workflow and the safety model.
+2. **`dvac-*` skills** (this repo) own the model format, the tool, the plan/apply workflow and the safety model.
+3. **Best practices** (naming, design, reviews, project structure, ALM) belong to the user — their own, a best-practice marketplace such as `powerplatform-bestpractices`, or none.
 
 Rules:
 
-- **Additive only.** A `dvac-*` skill never restates what an official skill or a `ppbp-*` skill already specifies. Point to it by name instead: *"The official skill owns <topic> — load it."* / *"Naming follows `ppbp-dv-columns`."*
-- **The validator is the only place conventions are encoded.** When it enforces a `ppbp-*` rule, the skill names the rule's owner and does not re-explain it. When a convention changes in `ppbp-*`, update the validator and its tests here.
-- **Runtime checks.** Every skill and agent checks that the official `dataverse` plugin is available and strongly recommends installing it if not. It also recommends the `ppbp-*` companion skills if they are missing, but must still work without them (the validator is authoritative).
+- **Additive only.** A `dvac-*` skill never restates what an official skill specifies. Point to it instead: *"The official skill owns <topic> — load it."*
+- **Convention-neutral.** Validators, schemas, skills and agents enforce only Dataverse platform rules, tool rules (file identity, references) and safety gates (irreversible or destructive changes). Never encode a naming or design convention — no suffix rules, no required descriptions, no "prefer X" warnings. Samples may illustrate one scheme, labelled as an example.
+- **Best practices at runtime.** Skills and agents look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. When there are none, they may suggest a best-practice marketplace — `powerplatform-bestpractices` is the one we recommend — but must work without it.
+- **Runtime checks.** Every skill and agent checks that the official `dataverse` plugin is available and strongly recommends installing it if not.
 
 ## Plugin Architecture
 
@@ -56,7 +59,7 @@ One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner ag
 
 ### Skills
 
-Required sections: `## Official skill`, `## Companion plugins` (the `ppbp-*` skills that own the conventions), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`.
+Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`.
 
 Implementation pitfalls use the two-level pattern: a short `## Common issue: <topic>` section in SKILL.md (2–3 sentences) pointing to the full treatment in `references/<topic>.md`.
 
@@ -69,7 +72,9 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 ### Scripts
 
 - Python ≥ 3.9, dependencies in `scripts/requirements.txt`, offline tests in `tests/` (stdlib `unittest`).
-- Authenticate with the Azure CLI token (`az login`). Read the target only from `<repo-root>/.env.dev`. Refuse to run unless `ENVIRONMENT_STAGE=dev`, the URL differs from `.env.uat`/`.env.prod`, and the target solution exists and is unmanaged. There is never a flag to override the guard.
+- Authenticate with the Azure CLI token (`az login`).
+- Take the dev environment (URL, stage, tenant) from **one** source, first match wins: `--env-url/--stage/--tenant` flags, then the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, then `<repo-root>/.env.dev`. URL and stage never mix sources; `--tenant` may override any source. `.env.dev` is one option, never a requirement.
+- Refuse to run unless the stage is declared `dev`, the URL differs from `.env.uat`/`.env.prod` when those files exist, and the target solution exists and is unmanaged. There is never a flag to override the guard.
 - **Shared code is copied, not imported** — plugins install independently. The dev guard and Web API client in `dv_plugin.py` must stay identical to `dv_metadata.py` (except the names allowed by `TestSharedBlock`). Change both copies in the same commit.
 - Never destructive by default. Any delete the tool can perform must be listed in the skill's safety model and require double confirmation.
 
@@ -81,7 +86,7 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 ### Compatibility
 
-The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`) and `.env.dev` are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
+The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.dev` keys) and the plan file format are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
 
 ## Skill Authoring Standards
 

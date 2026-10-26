@@ -6,7 +6,7 @@
 
 ```
 Dataverse metadata plan
-  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev)
+  env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev — or command-line flags / environment variables)
   solution : prfx_crm_Core (unmanaged)
   az user  : dev@contoso.com (tenant 0000…)
 
@@ -62,7 +62,7 @@ A blocked change is never run. The plan exits with code 1, and `apply` refuses a
 
 ## Unmanaged
 
-Scope is the components whose names start with `{prefix}_[{project_code}_]`:
+Scope is the components whose names start with `publisher.scope` (default `{prefix}_`):
 
 - global Choices and custom tables in that scope
 - `{prefix}_` custom columns on modeled tables, excluding helper columns such as `…name` and `…_base`
@@ -100,7 +100,7 @@ These complement the error table in `dataverse:dv-metadata`.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `0x8004431a` publisher prefix | The model `prefix` doesn't match the solution publisher | Align `publisher.prefix` with the solution's publisher |
-| `REFUSED: … MANAGED` | The target is not the dev environment | Check `.env.dev`; never change a managed solution |
+| `REFUSED: … MANAGED` | The target is not the dev environment | Check the dev environment inputs (flags, environment variables or `.env.dev`); never change a managed solution |
 | `REFUSED: solution … not found` | The solution hasn't been created yet | Create it with `dataverse:dv-solution` |
 | `az … failed` | No `az` session, or the wrong tenant | `az login --tenant <TENANT_ID>` |
 | Lookup creation fails on the target | The target table doesn't exist yet, or it's a system table you don't have access to | Check `target`; add the target table to the model |

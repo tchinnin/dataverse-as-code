@@ -6,6 +6,7 @@ Run:  python3 -m unittest discover -s <skill>/tests -v
 import copy
 import inspect
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 SKILL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL / "scripts"))
@@ -126,8 +128,8 @@ class TestValidate(unittest.TestCase):
     def test_samples_are_valid(self):
         self.assertEqual(dv.validate_path(SAMPLES).errors, [])
 
-    def test_assembly_warns(self):
-        self.assertIn("prefer a plug-in package", self.warnings())
+    def test_assembly_is_not_discouraged(self):
+        self.assertNotIn("prefer", self.warnings())
 
     def test_package_needs_prefix(self):
         self.edit("name: prfx_Contoso.Crm.Plugins", "name: Contoso.Crm.Plugins")
@@ -141,9 +143,9 @@ class TestValidate(unittest.TestCase):
         self.edit("    stage: post-operation\n    mode: async", "    stage: pre-operation\n    mode: async")
         self.assertIn("async steps run only in post-operation", self.errors())
 
-    def test_update_requires_filtering_attributes(self):
-        self.edit("    filtering_attributes: [prfx_statuscode]    # mandatory on Update\n", "")
-        self.assertIn("fires on every update", self.errors())
+    def test_update_without_filtering_attributes_is_allowed(self):
+        self.edit("    filtering_attributes: [prfx_statuscode]    # only these columns trigger the step\n", "")
+        self.assertEqual(self.errors(), "")
 
     def test_image_rules(self):
         self.edit("      - name: PreImage\n        type: pre\n        attributes: [prfx_ordernumber",
@@ -152,9 +154,11 @@ class TestValidate(unittest.TestCase):
         self.assertIn("Delete has no post-image", errors)
         self.assertIn("post-images exist only in post-operation", errors)
 
-    def test_image_needs_explicit_attributes(self):
-        self.edit("attributes: [prfx_statuscode, prfx_customerid]", "attributes: []")
-        self.assertIn("(at steps > 1 > images > 0 > attributes)", self.errors())
+    def test_image_may_capture_every_column(self):
+        self.edit("        attributes: [prfx_statuscode, prfx_customerid]\n", "")
+        self.assertEqual(self.errors(), "")
+        self.edit("        type: pre\n", "        type: pre\n        attributes: []\n")
+        self.assertEqual(self.errors(), "")
 
     def test_duplicate_step_name(self):
         self.edit("steps:\n", "steps:\n  - plugin: Contoso.Crm.Plugins.OrderPreCreate\n    message: Create\n"
@@ -211,7 +215,7 @@ class TestValidate(unittest.TestCase):
         (self.model / "Legacy.cs").write_text(
             "namespace Legacy.Plugins;\npublic sealed class AccountAddressSync : PluginBase { }\n", encoding="utf-8")
         self.assertEqual(self.errors(), "")
-        self.assertIn("'Contoso.Crm.Plugins.RecalculateOrderApi' does not derive from PluginBase", self.warnings())
+        self.assertIn("'Contoso.Crm.Plugins.RecalculateOrderApi' does not implement IPlugin", self.warnings())
         self.edit("plugin: Contoso.Crm.Plugins.OrderPreDelete", "plugin: Contoso.Crm.Plugins.OrderPreDeleteX")
         self.assertIn("is not a class of this project", self.errors())
 
@@ -674,8 +678,9 @@ class TestDevGuard(unittest.TestCase):
     def test_stage_must_be_dev(self):
         (self.root / ".env.dev").write_text("ENVIRONMENT_STAGE=prod\nDATAVERSE_URL=https://a.crm4.dynamics.com\n",
                                             encoding="utf-8")
-        with self.assertRaisesRegex(dv.GuardError, "ENVIRONMENT_STAGE=dev"):
-            dv.dev_environment(self.root)
+        with mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if k not in dv.ENV_KEYS}, clear=True):
+            with self.assertRaisesRegex(dv.GuardError, "stage 'dev'"):
+                dv.dev_environment(self.root)
 
     def test_managed_solution_is_refused(self):
         class Api:
@@ -692,7 +697,8 @@ class TestSharedBlock(unittest.TestCase):
     installed independently, so no cross-plugin import). Detect drift."""
     METADATA = SKILL.parents[2] / "dataverse-metadata-as-code" / "skills" / "dvac-metadata" / "scripts"
     SHARED = ("GuardError", "ApiError", "_c", "green", "yellow", "red", "grey", "bold", "Report",
-              "find_repo_root", "read_dotenv", "_norm_url", "dev_environment", "az_path", "az_json",
+              "ENV_KEYS", "ENV_HELP", "find_repo_root", "read_dotenv", "_norm_url", "add_env_args",
+              "env_inputs", "_env_source", "dev_environment", "az_path", "az_json",
               "_debug", "Api", "check_solution")
     ALLOWED = {"dvac-plugins": "dvac-metadata", "DV_PLUGIN_DEBUG": "DV_METADATA_DEBUG"}
 
@@ -705,6 +711,9 @@ class TestSharedBlock(unittest.TestCase):
         finally:
             sys.path.remove(str(self.METADATA))
         for name in self.SHARED:
+            if not callable(getattr(dv, name)):
+                self.assertEqual(getattr(dv, name), getattr(meta, name), f"{name} drifted from dv_metadata.py")
+                continue
             ours = inspect.getsource(getattr(dv, name))
             for a, b in self.ALLOWED.items():
                 ours = ours.replace(a, b)
@@ -727,18 +736,18 @@ class TestHook(unittest.TestCase):
         try:
             f = tmp / PACKAGE_SAMPLE
             text = (SAMPLES / PACKAGE_SAMPLE).read_text(encoding="utf-8")
-            f.write_text(text.replace("    filtering_attributes: [prfx_statuscode]    # mandatory on Update\n", ""),
+            f.write_text(text.replace("    stage: post-operation\n    mode: async", "    stage: pre-operation\n    mode: async"),
                          encoding="utf-8")
             res = self.run_hook(f)
             self.assertEqual(res.returncode, 2)
-            self.assertIn("fires on every update", res.stderr)
+            self.assertIn("async steps run only in post-operation", res.stderr)
         finally:
             shutil.rmtree(tmp)
 
     def test_warnings_are_returned_as_context(self):
         res = self.run_hook(SAMPLES / ASSEMBLY_SAMPLE)
         self.assertEqual(res.returncode, 0)
-        self.assertIn("prefer a plug-in package", json.loads(res.stdout)["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("no build output matches", json.loads(res.stdout)["hookSpecificOutput"]["additionalContext"])
 
 
 if __name__ == "__main__":

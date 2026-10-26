@@ -8,7 +8,13 @@ Each plugin ships a declarative model format (JSON Schemas + samples), a Python 
 
 The tooling only ever targets the **dev** environment's unmanaged solution. UAT and prod receive changes through the managed solution and your ALM pipeline.
 
-The conventions the models follow (naming, table/column/Choice design, plug-in project and step design) are not defined here. They live in the companion [`powerplatform-bestpractices`](https://github.com/tchinnin/powerplatform-bestpractices-skills) marketplace (`ppbp-*` skills).
+## Your conventions, not ours
+
+dataverse-as-code is an implementation, not a set of best practices. The validators only enforce Dataverse platform rules (publisher prefix, types, references, API constraints). How you name tables and columns, design steps or structure plug-in projects is up to you: write the model following your own best practices, or none.
+
+## Recommended companion
+
+We suggest pairing this marketplace with [`powerplatform-bestpractices`](https://github.com/tchinnin/powerplatform-bestpractices-skills) (`ppbp-*` skills). It provides opinionated conventions for Dataverse schema and plug-ins, and its `ppbp-init` skill creates the `.env.dev` file this tooling can read. It is optional: nothing here depends on it.
 
 ## Plugins
 
@@ -35,12 +41,23 @@ copilot plugin install dataverse-metadata-as-code@dataverse-as-code
 copilot plugin install dataverse-plugins-as-code@dataverse-as-code
 ```
 
-Also install:
+Also install the official Microsoft `dataverse` plugin — the foundation these skills build on. Optionally, add the recommended companion:
 
-- the official Microsoft `dataverse` plugin — the foundation these skills build on;
-- the matching `powerplatform-bestpractices` plugins (`ppbp-overview`, `ppbp-dataverse-metadata`, `ppbp-dataverse-plugins`) — the conventions the models follow.
+```sh
+/plugin marketplace add tchinnin/powerplatform-bestpractices-skills
+/plugin install ppbp-overview@powerplatform-bestpractices
+```
 
-Prerequisites: Python ≥ 3.9, the Azure CLI (`az login`), and the PAC CLI for plug-ins. Details are in each skill's `references/prerequisites.md`.
+## Prerequisites
+
+- Python ≥ 3.9, the Azure CLI (`az login`), and the PAC CLI for plug-ins.
+- The dev environment, given in any one of these ways:
+  - command-line flags: `--env-url <url> --stage dev [--tenant <id>]`
+  - environment variables: `DATAVERSE_URL`, `ENVIRONMENT_STAGE=dev`, `TENANT_ID`
+  - a `<repo-root>/.env.dev` file with the same keys (for example created by `ppbp-init`)
+- An unmanaged solution in that environment.
+
+The tool refuses to run unless the target is declared as `dev` and the solution is unmanaged. Details are in each skill's `references/prerequisites.md`.
 
 ## Repository map
 

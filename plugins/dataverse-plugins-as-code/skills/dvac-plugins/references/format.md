@@ -3,7 +3,7 @@
 [`schemas/plugin.schema.json`](schemas/plugin.schema.json) is authoritative, and this page explains it. Annotated examples are in [`samples/`](samples/):
 
 - a package with steps, images and a Custom API
-- a legacy assembly
+- an assembly
 
 Start every file with the `yaml-language-server` directive, so VS Code validates it as you type:
 
@@ -29,7 +29,7 @@ Start every file with the `yaml-language-server` directive, so VS Code validates
 | `steps` | no | List of steps |
 | `custom_apis` | no | Map keyed by Custom API unique name |
 
-## `package` (recommended)
+## `package`
 
 | Key | Required | Notes |
 |---|---|---|
@@ -37,7 +37,7 @@ Start every file with the `yaml-language-server` directive, so VS Code validates
 | `nupkg` | yes | Path or glob of the build output, relative to the file. With a glob, the highest `.nuspec` version wins. |
 | `id` | — | Written by `apply` after the first upload. Commit it, never edit it. |
 
-## `assembly` (existing projects only)
+## `assembly`
 
 | Key | Required | Notes |
 |---|---|---|
@@ -58,7 +58,7 @@ An assembly is registered in sandbox isolation, stored in the database. The tool
 | `stage` | required | yes — `pre-validation`, `pre-operation`, `post-operation` |
 | `mode` | `sync` | yes — `async` requires `post-operation` |
 | `rank` | `1` | yes — execution order among the steps on the same message, table and stage ("Execution Order" in the Plugin Registration Tool); lower runs first |
-| `filtering_attributes` | none | yes — **required on `Update`**; compared as a set |
+| `filtering_attributes` | none (fires on every column) | yes — `Update` only; compared as a set |
 | `configuration` | not managed | when declared — unsecure configuration, never secrets |
 | `description` | not managed | when declared |
 | `async_auto_delete` | not managed | when declared — async steps only |
@@ -74,7 +74,7 @@ Secure configuration is not part of the model. A step's secure configuration is 
 | `name` | required | Identity within the step |
 | `alias` | `name` | Key of the image in the execution context |
 | `type` | required | `pre`, `post`, `both` |
-| `attributes` | required | Explicit, non-empty column list — never "all columns" |
+| `attributes` | all columns | Columns captured in the image; omitted or empty captures every column |
 | `message_property` | derived | `Create` → `Id` · `Update`, `Delete`, `Assign`, `Merge`, `Route` → `Target` · `SetState`, `SetStateDynamicEntity` → `EntityMoniker` · `Send`, `DeliverIncoming`, `DeliverPromote` → `EmailId`. Required for any other message. |
 
 The validator rejects these:
@@ -82,8 +82,6 @@ The validator rejects these:
 - a pre-image on `Create`
 - a post-image on `Delete`
 - a post-image outside `post-operation`
-
-It warns on a post-image on a synchronous step.
 
 ## Custom API (`custom_apis.<unique name>`)
 

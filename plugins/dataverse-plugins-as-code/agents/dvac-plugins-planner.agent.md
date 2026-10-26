@@ -36,7 +36,7 @@ You cannot talk to the user directly, so you work in **two invocations**:
 
   Reading the environment to understand it is fine.
 - **Never run `apply` in a planning run.** Never apply a plan file the caller did not explicitly approve.
-- **Never edit the `id:` of a model, or any `.env.*` file.** Never try to get around the dev guard. If it refuses, stop and report why.
+- **Never edit the `id:` of a model or any `.env.*` file, and never declare a non-dev environment as `dev`.** Never try to get around the dev guard. If it refuses, stop and report why.
 - **Never put secrets in `configuration`.**
 
 ## Planning run
@@ -46,20 +46,17 @@ You cannot talk to the user directly, so you work in **two invocations**:
    - Run `DVP doctor plugins/`.
    - If `az` has no session, stop and return: *"Run `! az login --tenant <TENANT_ID>` and re-invoke me."*
    - If the pac profile is missing, stop and return the fix owned by `dataverse:dv-connect`.
-   - If `.env.dev` is missing, the guard refuses, or the solution is missing, stop and return the exact message plus the fix: `ppbp-init` for `.env.dev`, `dataverse:dv-solution` for the solution.
-2. **Load the conventions.** If the `ppbp-*` companion skills (`powerplatform-bestpractices` marketplace) are missing, say in your report that the user should install them, and follow the validator. Read these skills:
-   - `ppbp-dv-plugins-overview`
-   - `dvac-plugins`, with its `references/format.md`
-   - `ppbp-dv-step-plugin`
-   - `ppbp-dv-custom-api`
-   - `ppbp-dv-plugin-build`
+   - The dev environment comes from the caller (`--env-url … --stage dev [--tenant …]`), the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, or `<repo-root>/.env.dev`. Pass the flags on every `DVP` call when the caller gave them.
+   - If no source is available, stop and return a question asking for the dev URL and tenant. Mention that a committed `.env.dev` is a convenient option (for example created by `ppbp-init`).
+   - If the guard refuses or the solution is missing, stop and return the exact message plus the fix: `dataverse:dv-solution` for the solution.
+2. **Load the best practices.** Read the `dvac-plugins` skill and its `references/format.md`. Then look for the project's own best practices — README, `AGENTS.md`, installed skills — for project structure, step and Custom API design, versioning and build, and follow them. If there are none, follow the user's request and the format rules only, and say in your report that best-practice skills (for example the `powerplatform-bestpractices` marketplace) can be added.
 3. **Adopt before editing.** Check whether the project has a `.dv.plugin.yaml`.
    - If it has none but the package or assembly is already registered, run `DVP export --solution <s> --package <name>` (or `--assembly`) and write the output next to the `.csproj`.
-   - If the package or assembly is not registered at all, start from `references/samples/`, taking the prefix and solution from `README.md`.
-   - If the request needs a **new plug-in project**, return a question for its root namespace before scaffolding. Propose `Company.Team.Project`, built from the solution publisher and the project code in `README.md` (`ppbp-dv-plugin-build`). Never invent it.
+   - If the package or assembly is not registered at all, start from `references/samples/`, taking the prefix and solution from the user or `README.md`.
+   - If the request needs a **new plug-in project**, return a question for its name and root namespace before scaffolding (scaffold it with the official tooling, `pac plugin init`, unless the project's best practices say otherwise). Never invent them.
    - If the prefix or solution is missing, return a question instead of guessing.
 4. **Write the model.** Make the smallest change that satisfies the request.
-   - When the request adds a class or changes code, change the code too. Then bump the version and build, following `ppbp-dv-plugin-build`, so the plan sees the new content.
+   - When the request adds a class or changes code, change the code too. Then build the project (bumping the version if the project's practices require it), so the plan sees the new content.
 5. **Validate.** Run `DVP validate <file>` and fix every error. Report the warnings that remain.
 6. **Plan.** Run `DVP plan <file> --json`. Exit code `2` means changes are pending, `0` means none, `1` means an error or blocked items.
 7. **Return the plan and stop.** Use this structure:

@@ -4,12 +4,14 @@ Run:  python3 -m unittest discover -s <skill>/tests -v
 """
 import copy
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SKILL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL / "scripts"))
@@ -84,12 +86,19 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(dv.validate_model(SAMPLES).errors, [])
 
     def test_wrong_table_prefix(self):
-        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "key: prfx_crm_Order", "key: prfx_Order")
-        self.assertIn("must start with 'prfx_crm_'", self.errors())
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "key: prfx_crm_Order", "key: other_Order")
+        self.assertIn("must start with the publisher prefix 'prfx_'", self.errors())
 
-    def test_column_with_project_code(self):
-        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Amount:", "  prfx_crm_Amount:")
-        self.assertIn("never carry the project code", self.errors())
+    def test_naming_conventions_are_not_enforced(self):
+        """Design conventions belong to the user's best practices, not to the validator."""
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Amount:", "  prfx_crm_SourceId:")
+        report = dv.validate_model(self.model)
+        self.assertEqual(report.errors, [])
+        self.assertFalse(any("SourceId" in w for w in report.warnings), report.warnings)
+
+    def test_scope_must_start_with_the_prefix(self):
+        self.edit("_meta.dv.metadata.yaml", "scope: prfx_crm_", "scope: other_")
+        self.assertIn("publisher.scope must start with 'prfx_'", self.errors())
 
     def test_missing_choice_reference(self):
         self.edit("tables/prfx_crm_Order.dv.metadata.yaml",
@@ -177,11 +186,6 @@ class TestValidate(unittest.TestCase):
         self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "    cascade: restrict",
                   "    cascade: {delete: restrict, share: active}")
         self.assertIn("no effect on an org-owned table", self.warnings())
-
-    def test_non_lookup_ending_in_id_warns(self):
-        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Amount:", "  prfx_SourceId:")
-        warnings = "\n".join(dv.validate_model(self.model).warnings)
-        self.assertIn("non-lookup column ending in 'Id'", warnings)
 
     def test_attribute_not_applicable(self):
         self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "    precision: 2", "    precision: 2\n    max_length: 10")
@@ -458,8 +462,12 @@ class TestCascade(unittest.TestCase):
 class TestDevGuard(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
+        clean = {k: v for k, v in os.environ.items() if k not in dv.ENV_KEYS}
+        self._env = mock.patch.dict(os.environ, clean, clear=True)
+        self._env.start()
 
     def tearDown(self):
+        self._env.stop()
         shutil.rmtree(self.root)
 
     def write(self, name, body):
@@ -471,7 +479,7 @@ class TestDevGuard(unittest.TestCase):
 
     def test_stage_must_be_dev(self):
         self.write(".env.dev", "ENVIRONMENT_STAGE=uat\nDATAVERSE_URL=https://a.crm4.dynamics.com\n")
-        with self.assertRaisesRegex(dv.GuardError, "ENVIRONMENT_STAGE=dev"):
+        with self.assertRaisesRegex(dv.GuardError, "stage 'dev'"):
             dv.dev_environment(self.root)
 
     def test_same_url_as_prod(self):
@@ -485,6 +493,39 @@ class TestDevGuard(unittest.TestCase):
         self.write(".env.prod", "ENVIRONMENT_STAGE=prod\nDATAVERSE_URL=https://a.crm4.dynamics.com\n")
         env = dv.dev_environment(self.root)
         self.assertEqual((env["url"], env["tenant"]), ("https://a-dev.crm4.dynamics.com", "t1"))
+
+    def test_missing_inputs_lists_every_method(self):
+        with self.assertRaisesRegex(dv.GuardError, "--env-url.*DATAVERSE_URL.*\\.env\\.dev"):
+            dv.dev_environment(self.root)
+
+    def test_flags_without_env_dev(self):
+        env = dv.dev_environment(self.root, url="https://a-dev.crm4.dynamics.com/", stage="dev", tenant="t1")
+        self.assertEqual((env["url"], env["tenant"], env["source"]),
+                         ("https://a-dev.crm4.dynamics.com", "t1", "command-line flags"))
+
+    def test_flag_url_never_borrows_the_stage_of_env_dev(self):
+        self.write(".env.dev", "ENVIRONMENT_STAGE=dev\nDATAVERSE_URL=https://a-dev.crm4.dynamics.com\n")
+        with self.assertRaisesRegex(dv.GuardError, "stage 'dev'"):
+            dv.dev_environment(self.root, url="https://a.crm4.dynamics.com")
+
+    def test_environment_variables_win_over_env_dev(self):
+        self.write(".env.dev", "ENVIRONMENT_STAGE=dev\nDATAVERSE_URL=https://file.crm4.dynamics.com\n")
+        os.environ.update(DATAVERSE_URL="https://vars.crm4.dynamics.com", ENVIRONMENT_STAGE="dev")
+        env = dv.dev_environment(self.root)
+        self.assertEqual((env["url"], env["source"]), ("https://vars.crm4.dynamics.com", "environment variables"))
+
+    def test_flags_are_checked_against_prod(self):
+        self.write(".env.prod", "ENVIRONMENT_STAGE=prod\nDATAVERSE_URL=https://a.crm4.dynamics.com\n")
+        with self.assertRaisesRegex(dv.GuardError, ".env.prod"):
+            dv.dev_environment(self.root, url="https://a.crm4.dynamics.com", stage="dev")
+
+    def test_tenant_flag_overrides_env_dev(self):
+        self.write(".env.dev", "ENVIRONMENT_STAGE=dev\nDATAVERSE_URL=https://a-dev.crm4.dynamics.com\nTENANT_ID=t1\n")
+        self.assertEqual(dv.dev_environment(self.root, tenant="t2")["tenant"], "t2")
+
+    def test_repo_root_falls_back_to_cwd(self):
+        with mock.patch.object(dv.Path, "cwd", return_value=self.root):
+            self.assertEqual(dv.find_repo_root(self.root / "nowhere"), self.root.resolve())
 
     def test_managed_solution_is_refused(self):
         class FakeApi:

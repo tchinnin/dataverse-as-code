@@ -26,9 +26,13 @@ The tool asks the Azure CLI for a token (`az account get-access-token --resource
 az login --tenant <TENANT_ID>
 ```
 
-## 3. `.env.dev` at the repo root
+## 3. Dev environment inputs
 
-`ppbp-init` creates this file. It is committed and holds no secrets:
+The tool needs three inputs: the dev environment URL, its declared stage (must be `dev`), and optionally the Entra tenant. It takes them from **one** source, in this order:
+
+1. **Command-line flags** on `doctor`, `plan`, `apply` and `export`: `--env-url https://<org>-dev.crm4.dynamics.com --stage dev [--tenant <tenant-guid>]`.
+2. **Environment variables** `DATAVERSE_URL`, `ENVIRONMENT_STAGE=dev`, `TENANT_ID` (CI, a shell profile, a secrets manager…).
+3. **A `<repo-root>/.env.dev` file** with the same keys. It holds no secrets and can be committed. One way to create it: the `ppbp-init` skill of the `powerplatform-bestpractices` marketplace.
 
 ```dotenv
 ENVIRONMENT_STAGE=dev
@@ -36,10 +40,13 @@ DATAVERSE_URL=https://<org>-dev.crm4.dynamics.com
 TENANT_ID=<tenant-guid>
 ```
 
-The tool reads **only** this file. It refuses to run in either of these cases:
+URL and stage always come from the same source: a `--env-url` flag never borrows the stage of a `.env.dev`. `--tenant` overrides the tenant of any source. The tool ignores `.env`, the local file `dataverse:dv-connect` writes for its own tooling.
 
-- `ENVIRONMENT_STAGE` is not `dev`
-- the URL matches the one in `.env.uat` or `.env.prod`
+The tool refuses to run when:
+
+- the stage is not `dev`
+- the URL matches the one in `<repo-root>/.env.uat` or `.env.prod`, when those files exist
+- the target solution is missing or managed (checked on the server)
 
 ## 4. Unmanaged solution in dev
 
@@ -47,8 +54,8 @@ The tool reads **only** this file. It refuses to run in either of these cases:
 
 ## 5. PAC CLI profile and build output (apply)
 
-- **PAC CLI.** `apply` pushes new content with `pac plugin push` and always passes `--environment <DATAVERSE_URL>`. The active pac profile must therefore have access to the dev environment. `dataverse:dv-connect` owns PAC CLI installation and authentication.
-- **Build output.** The `.nupkg` (or `.dll`) that the model points to must exist. Build it as described in `ppbp-dv-plugin-build`.
+- **PAC CLI.** `apply` pushes new content with `pac plugin push` and always passes `--environment <dev URL>`. The active pac profile must therefore have access to the dev environment. `dataverse:dv-connect` owns PAC CLI installation and authentication.
+- **Build output.** The `.nupkg` (or `.dll`) that the model points to must exist. Build the project before planning.
 
 ## 6. Check
 

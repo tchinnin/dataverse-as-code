@@ -8,8 +8,8 @@
   "properties": {
     "key": {
       "type": "string",
-      "description": "Table Schema Name — {prefix}_[{project_code}_]{TableName}, English, singular. Equals the file name without extension.",
-      "pattern": "^[a-z][a-z0-9]{1,7}_([a-z0-9]+_)?[A-Za-z][A-Za-z0-9]*$"
+      "description": "Table Schema Name (must start with the publisher prefix). Equals the file name without extension.",
+      "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z0-9_]+$"
     },
     "label": { "$ref": "#/definitions/localizedText", "description": "Display Name (singular)." },
     "label_plural": { "$ref": "#/definitions/localizedText", "description": "Plural Display Name. Defaults to label + 's' at creation." },
@@ -29,9 +29,9 @@
     "auditing": { "type": "boolean", "default": false },
     "columns": {
       "type": "object",
-      "description": "Columns keyed by Schema Name: {prefix}_{ColumnName} — never the project code.",
+      "description": "Columns keyed by Schema Name (must start with the publisher prefix).",
       "minProperties": 1,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z][A-Za-z0-9]*$" },
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]{1,7}_[A-Za-z0-9_]+$" },
       "additionalProperties": { "$ref": "#/definitions/column" }
     },
     "keys": {

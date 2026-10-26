@@ -12,7 +12,7 @@ Every file starts with the `yaml-language-server` directive so VS Code validates
 
 | File | Schema | Content |
 |---|---|---|
-| `_meta.dv.metadata.yaml` | `meta.schema.json` | `version`, `publisher.{prefix, project_code?, solution}`, `locale`, `languages?` |
+| `_meta.dv.metadata.yaml` | `meta.schema.json` | `version`, `publisher.{prefix, scope?, solution}`, `locale`, `languages?` |
 | `choices.dv.metadata.yaml` | `choices.schema.json` | `choices:` map of global Choices |
 | `tables/<key>.dv.metadata.yaml` | `table.schema.json` | One table, with its columns and alternate keys |
 
@@ -20,12 +20,7 @@ The tool finds table files with a glob over `tables/*.dv.metadata.yaml`. There i
 
 ## Names
 
-| Object | Form | Example (`prefix: prfx`, `project_code: crm`) |
-|---|---|---|
-| Table | `{prefix}_[{project_code}_]{TableName}` | `prfx_crm_Order` |
-| Global Choice | `{prefix}_[{project_code}_]choice_{ChoiceName}` | `prfx_crm_choice_OrderStatus` |
-| Column | `{prefix}_{ColumnName}`, never with the project code | `prfx_CustomerId` |
-| Alternate key | `{prefix}_…` | `prfx_crm_customer_customernumber_key` |
+Every table, column, global Choice and alternate key name starts with the publisher prefix (`{prefix}_…`) — a Dataverse rule for custom components. The rest of the name is yours: the format and the validator impose no naming convention. Apply your team's best practices; the samples use one possible scheme (`prfx_crm_Order`, `prfx_crm_choice_OrderStatus`, `prfx_CustomerId`).
 
 YAML keys are **Schema Names**, so their casing is kept. The tool compares names case-insensitively, the way Dataverse logical names work. References such as `choice:`, `target:` and key `columns:` may be written in either case.
 
@@ -35,7 +30,7 @@ YAML keys are **Schema Names**, so their casing is kept. The tool compares names
 |---|---|---|
 | `version` | yes | `"1.0"` |
 | `publisher.prefix` | yes | 2–8 lowercase alphanumeric characters, permanent |
-| `publisher.project_code` | no | When set, every table and Choice must carry it |
+| `publisher.scope` | no | Schema-name prefix (default `{prefix}_`) that limits the `? unmanaged` report to components named `{scope}…`. Never enforced on model names. |
 | `publisher.solution` | yes | Unique name of the **unmanaged** dev solution |
 | `locale` | yes | `en`, `fr`, `es`, `de`, `it`, `pt` or `nl` — the base language (environment's primary language). A plain-string label is written in it. |
 | `languages` | no | LCIDs the labels are translated into, e.g. `[1033, 1036]` — see [Localization](#localization) |
@@ -72,7 +67,7 @@ Localizable fields: table `label`, `label_plural`, `description`; column `label`
 ```yaml
 choices:
   prfx_crm_choice_OrderStatus:
-    label: Order Status Choice      # ends with " Choice"
+    label: Order Status Choice
     description: Lifecycle of a customer order.
     options:
       - {value: 100000000, label: Draft, color: "#9EA6B3"}
@@ -117,7 +112,7 @@ Type-specific attributes:
 | `autonumber` | `format` (required), `max_length` | e.g. `"ORD-{SEQNUM:6}"` |
 | `integer` | `min`, `max` | Int32 — use decimal or text for IDs that can exceed it |
 | `decimal` | `min`, `max`, `precision` | default type for amounts |
-| `money` | `min`, `max`, `precision_source` (`currency` default \| `pricing` \| `fixed`), `precision` (0–4, only with `fixed`) | needs double confirmation (currency machinery) |
+| `money` | `min`, `max`, `precision_source` (`currency` default \| `pricing` \| `fixed`), `precision` (0–4, only with `fixed`) | |
 | `boolean` | `default`, `true_label`, `false_label` | labels default to Yes/No in each language |
 | `date` | — | date only |
 | `datetime` | `behavior`: `userlocal` \| `timezoneindependent`; `display`: `datetime` (default) \| `date` | `display` is the form format only, independent of storage. `userlocal` → another behavior is allowed once; anything else is **blocked** |
