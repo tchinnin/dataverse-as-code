@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../schemas/plugin.schema.json
+#
+# Sample — an existing project registered as a plug-in assembly (signed .dll).
+# New projects use a package instead (see Contoso.Crm.Plugins.dv.plugin.yaml).
+version: "1.0"
+publisher:
+  prefix: prfx
+  solution: prfx_crm_Core
+assembly:
+  name: Legacy.Plugins
+  dll: bin/Release/net48/Legacy.Plugins.dll
+  id: null                           # written by apply after the first upload — do not edit
+
+steps:
+  - name: Legacy - Account address sync   # explicit name (renaming = delete + create)
+    plugin: Legacy.Plugins.AccountAddressSync
+    message: Update
+    table: account
+    stage: pre-operation
+    rank: 10
+    filtering_attributes: [address1_city, address1_postalcode]
+    configuration: '{"country": "FR"}'      # unsecure configuration only — never secrets
+    images:
+      - name: PreImage
+        type: pre
+        attributes: [address1_city, address1_postalcode]

@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataverse _meta.dv.metadata.yaml",
+  "description": "Entry point of a Dataverse metadata-as-code model: publisher, target solution and base language.",
+  "type": "object",
+  "required": ["version", "publisher", "locale"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Format version of the model files.",
+      "enum": ["1.0"]
+    },
+    "publisher": {
+      "type": "object",
+      "required": ["prefix", "solution"],
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "description": "Publisher customization prefix — permanent, 2-8 lowercase alphanumeric characters.",
+          "pattern": "^[a-z][a-z0-9]{1,7}$"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Optional schema-name prefix (default '{prefix}_') that scopes the '? unmanaged' report: only server components whose name starts with it are listed. Never enforced on model names.",
+          "pattern": "^[a-z][a-z0-9]{1,7}_[a-z0-9_]*$"
+        },
+        "solution": {
+          "type": "string",
+          "description": "Unique name of the target unmanaged solution in the dev environment.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "locale": {
+      "type": "string",
+      "description": "Base language of Display Names and Descriptions (the environment's primary language).",
+      "enum": ["en", "fr", "es", "de", "it", "pt", "nl"]
+    },
+    "languages": {
+      "type": "array",
+      "description": "LCIDs the labels are translated into (base language included or not), e.g. [1033, 1036]. A missing translation is a warning.",
+      "items": { "type": "integer", "minimum": 1000, "maximum": 99999 },
+      "uniqueItems": true
+    }
+  }
+}

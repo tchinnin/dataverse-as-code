@@ -1,0 +1,25 @@
+{
+  "name": "dataverse-as-code",
+  "owner": {
+    "name": "Théophile Chin-nin",
+    "url": "https://github.com/tchinnin"
+  },
+  "metadata": {
+    "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with the dev environment through plan → confirm → apply",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "dataverse-metadata-as-code",
+      "description": "Dataverse schema as code: .dv.metadata.yaml model, plan/apply to dev (never destructive), planner agent and validation hook.",
+      "source": "./plugins/dataverse-metadata-as-code",
+      "homepage": "https://github.com/tchinnin/dataverse-as-code"
+    },
+    {
+      "name": "dataverse-plugins-as-code",
+      "description": "Dataverse plug-ins as code: .dv.plugin.yaml registrations (package, steps, images, Custom APIs), plan/apply to dev with pac plugin push, planner agent and validation hook.",
+      "source": "./plugins/dataverse-plugins-as-code",
+      "homepage": "https://github.com/tchinnin/dataverse-as-code"
+    }
+  ]
+}

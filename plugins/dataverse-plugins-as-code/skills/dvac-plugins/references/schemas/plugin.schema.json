@@ -1,0 +1,244 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataverse plug-in registrations (*.dv.plugin.yaml)",
+  "description": "One plug-in project: its plug-in package (recommended) or plug-in assembly, its steps and step images, and the Custom APIs it implements.",
+  "type": "object",
+  "required": ["version", "publisher"],
+  "additionalProperties": false,
+  "oneOf": [
+    {"required": ["package"]},
+    {"required": ["assembly"]}
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Format version of the file.",
+      "enum": ["1.0"]
+    },
+    "publisher": {
+      "type": "object",
+      "required": ["prefix", "solution"],
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "description": "Customization prefix of the solution publisher.",
+          "pattern": "^[a-z][a-z0-9]{1,7}$"
+        },
+        "solution": {
+          "type": "string",
+          "description": "Unique name of the unmanaged dev solution that receives every registration.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "description": "Plug-in package (NuGet) — the recommended registration.",
+      "required": ["name", "nupkg"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique name of the package: publisher prefix + NuGet package id. Permanent once created.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.]*$",
+          "maxLength": 128
+        },
+        "nupkg": {
+          "type": "string",
+          "description": "Path or glob of the built .nupkg, relative to this file. The highest version is used.",
+          "pattern": "\\.nupkg$"
+        },
+        "id": {"$ref": "#/definitions/id"}
+      }
+    },
+    "assembly": {
+      "type": "object",
+      "description": "Plug-in assembly (signed .dll).",
+      "required": ["name", "dll"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Assembly name (file name without .dll). Permanent once created.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.]*$",
+          "maxLength": 100
+        },
+        "dll": {
+          "type": "string",
+          "description": "Path or glob of the built .dll, relative to this file.",
+          "pattern": "\\.dll$"
+        },
+        "id": {"$ref": "#/definitions/id"}
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Message processing steps. A server step of this package/assembly that is not listed here is deleted (with double confirmation).",
+      "items": {"$ref": "#/definitions/step"}
+    },
+    "custom_apis": {
+      "type": "object",
+      "description": "Custom APIs keyed by unique name (publisher-prefixed, immutable).",
+      "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+      "additionalProperties": {"$ref": "#/definitions/customApi"}
+    }
+  },
+  "definitions": {
+    "id": {
+      "description": "Server id, written by apply after the first upload — do not edit.",
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}
+      ]
+    },
+    "logicalName": {
+      "type": "string",
+      "description": "Dataverse logical name (lowercase).",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "typeName": {
+      "type": "string",
+      "description": "Full .NET type name of the plug-in class: Namespace.ClassName.",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "step": {
+      "type": "object",
+      "required": ["plugin", "message", "stage"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Step name — the identity of the step. Defaults to '<plugin>: <message> of <table>' (the Plugin Registration Tool format).",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "plugin": {"$ref": "#/definitions/typeName"},
+        "message": {
+          "type": "string",
+          "description": "SDK message (Create, Update, Delete, …) or the unique name of a Custom API.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        },
+        "table": {"$ref": "#/definitions/logicalName"},
+        "stage": {"type": "string", "enum": ["pre-validation", "pre-operation", "post-operation"]},
+        "mode": {"type": "string", "enum": ["sync", "async"], "default": "sync"},
+        "rank": {
+          "type": "integer",
+          "description": "Execution order among the steps registered on the same message, table and stage ('Execution Order' in the Plugin Registration Tool). Lower runs first.",
+          "minimum": 1,
+          "default": 1
+        },
+        "filtering_attributes": {
+          "type": "array",
+          "description": "Columns whose change triggers an Update step.",
+          "items": {"$ref": "#/definitions/logicalName"},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "configuration": {
+          "type": "string",
+          "description": "Unsecure configuration. Never put secrets here."
+        },
+        "description": {"type": "string"},
+        "async_auto_delete": {"type": "boolean"},
+        "enabled": {"type": "boolean", "default": true},
+        "images": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/image"}
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$", "maxLength": 256},
+        "alias": {
+          "type": "string",
+          "description": "Key of the image in the execution context. Defaults to name.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        },
+        "type": {"type": "string", "enum": ["pre", "post", "both"]},
+        "attributes": {
+          "type": "array",
+          "description": "Columns captured in the image. Omitted or empty captures every column.",
+          "items": {"$ref": "#/definitions/logicalName"},
+          "uniqueItems": true
+        },
+        "message_property": {
+          "type": "string",
+          "description": "Message property the image is taken from. Derived from the message when omitted (Create: Id, Update/Delete: Target, SetState: EntityMoniker…).",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "customApi": {
+      "type": "object",
+      "required": ["display_name", "binding"],
+      "additionalProperties": false,
+      "properties": {
+        "plugin": {"$ref": "#/definitions/typeName"},
+        "name": {"type": "string", "maxLength": 100},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "description": {"type": "string"},
+        "binding": {
+          "type": "string",
+          "description": "Immutable once created.",
+          "enum": ["global", "entity", "entity-collection"]
+        },
+        "bound_table": {"$ref": "#/definitions/logicalName"},
+        "is_function": {"type": "boolean", "description": "Immutable once created.", "default": false},
+        "allowed_steps": {
+          "type": "string",
+          "description": "Custom processing steps other plug-ins may register on this message. Immutable once created.",
+          "enum": ["none", "async-only", "sync-and-async"],
+          "default": "none"
+        },
+        "workflow_enabled": {"type": "boolean", "description": "Immutable once created.", "default": false},
+        "is_private": {"type": "boolean", "default": false},
+        "execute_privilege": {"type": "string", "description": "Name of the privilege required to call the API."},
+        "request": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+          "additionalProperties": {"$ref": "#/definitions/requestParameter"}
+        },
+        "response": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+          "additionalProperties": {"$ref": "#/definitions/responseProperty"}
+        }
+      }
+    },
+    "paramType": {
+      "type": "string",
+      "enum": ["boolean", "datetime", "decimal", "entity", "entity-collection", "entity-reference",
+               "float", "integer", "money", "picklist", "string", "string-array", "guid"]
+    },
+    "requestParameter": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"$ref": "#/definitions/paramType"},
+        "optional": {"type": "boolean", "description": "Immutable once created.", "default": false},
+        "table": {"$ref": "#/definitions/logicalName"},
+        "name": {"type": "string", "maxLength": 100},
+        "display_name": {"type": "string", "maxLength": 100},
+        "description": {"type": "string"}
+      }
+    },
+    "responseProperty": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"$ref": "#/definitions/paramType"},
+        "table": {"$ref": "#/definitions/logicalName"},
+        "name": {"type": "string", "maxLength": 100},
+        "display_name": {"type": "string", "maxLength": 100},
+        "description": {"type": "string"}
+      }
+    }
+  }
+}

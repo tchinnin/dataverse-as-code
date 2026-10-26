@@ -1,0 +1,17 @@
+{
+  "description": "Validate the Dataverse plug-in registration model after any *.dv.plugin.yaml edit (Claude Code).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/dvac-plugins/scripts/hook_validate.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+# yaml-language-server: $schema=../schemas/plugin.schema.json
+#
+# Sample — a plug-in package with steps, step images and a Custom API.
+# In a project it sits next to the .csproj:
+#   plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
+version: "1.0"
+publisher:
+  prefix: prfx
+  solution: prfx_crm_Core            # unmanaged dev solution — every registration is added to it
+package:
+  name: prfx_Contoso.Crm.Plugins     # publisher prefix + NuGet package id; permanent once created
+  nupkg: bin/Release/*.nupkg         # relative to this file; the highest version is used
+  id: null                           # written by apply after the first upload — do not edit
+
+steps:
+  # Name defaults to "<plugin>: <message> of <table>" — the Plugin Registration Tool format.
+  - plugin: Contoso.Crm.Plugins.OrderPreCreate
+    message: Create
+    table: prfx_crm_order
+    stage: pre-operation
+    description: Sets the order number and the default status.
+
+  - plugin: Contoso.Crm.Plugins.OrderStatusChanged
+    message: Update
+    table: prfx_crm_order
+    stage: post-operation
+    mode: async
+    async_auto_delete: true
+    filtering_attributes: [prfx_statuscode]    # only these columns trigger the step
+    images:
+      - name: PreImage
+        type: pre
+        attributes: [prfx_statuscode, prfx_customerid]
+
+  - plugin: Contoso.Crm.Plugins.OrderPreDelete
+    message: Delete
+    table: prfx_crm_order
+    stage: pre-validation
+    images:
+      - name: PreImage
+        type: pre
+        attributes: [prfx_ordernumber, prfx_statuscode]
+
+custom_apis:
+  prfx_crm_RecalculateOrder:
+    plugin: Contoso.Crm.Plugins.RecalculateOrderApi
+    display_name: Recalculate order
+    description: Recalculates the order total from its lines.
+    binding: entity                  # immutable once created
+    bound_table: prfx_crm_order      # immutable once created
+    is_function: false               # immutable once created
+    allowed_steps: async-only        # immutable once created
+    request:
+      Reason:
+        type: string
+        optional: true               # immutable once created
+        display_name: Reason
+    response:
+      Total:
+        type: money
+        display_name: Total
