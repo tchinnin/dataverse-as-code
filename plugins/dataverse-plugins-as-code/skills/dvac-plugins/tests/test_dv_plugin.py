@@ -24,7 +24,7 @@ SAMPLES = SKILL / "references" / "samples"
 PACKAGE_SAMPLE = "Contoso.Crm.Plugins.dv.plugin.yaml"
 ASSEMBLY_SAMPLE = "Legacy.Plugins.dv.plugin.yaml"
 SHA = "a" * 64
-CTYPES = {"package": 10090, "assembly": 91, "step": 92, "image": 93,
+CTYPES = {"package": 10090, "assembly": 91, "step": 92,
           "customapi": 10027, "request": 10028, "response": 10029}
 
 
@@ -67,7 +67,7 @@ def mirror_server(units):
                          "async_auto_delete": s.get("async_auto_delete", False)})
             have["images"] = {k: {**i, "id": gid()} for k, i in s["images"].items()}
             steps[s["name"].lower()] = have
-            members |= {have["id"].lower()} | {i["id"].lower() for i in have["images"].values()}
+            members.add(have["id"].lower())
         apis = {}
         for key, a in u["custom_apis"].items():
             h = {k: v for k, v in a.items() if k not in ("request", "response")}
@@ -466,7 +466,7 @@ class TestSolutionMembership(unittest.TestCase):
         api = pkg["custom_apis"]["prfx_crm_recalculateorder"]
         step = next(s for s in pkg["steps"].values() if s["images"])
         self.ids = {"package": pkg["id"], "assembly": pkg["assemblies"][0]["id"], "step": step["id"],
-                    "image": next(iter(step["images"].values()))["id"], "customapi": api["id"],
+                    "customapi": api["id"],
                     "request": api["request"]["reason"]["id"], "response": api["response"]["total"]["id"]}
 
     def test_every_component_kind_is_added_to_the_solution(self):
@@ -474,11 +474,16 @@ class TestSolutionMembership(unittest.TestCase):
             self.members.discard(rid.lower())
         plan = dv.diff(self.units, self.server)
         self.assertEqual([a["kind"] for a in plan["actions"]],
-                         ["package", "customapi", "request", "response", "step", "image"])
+                         ["package", "customapi", "request", "response", "step"])
         for a in plan["actions"]:
             self.assertEqual(a["changes"], {"solution": ["absent", "prfx_crm_Core"]})
             self.assertEqual(a["component"], CTYPES[a["kind"]])
             self.assertEqual(a["id"], self.ids[a["kind"]])
+
+    def test_step_image_is_never_added(self):
+        # A step image is not a solution component: it travels with its step.
+        self.assertEqual(dv.diff(self.units, self.server)["actions"], [])
+        self.assertNotIn("image", dv.COMPONENT_TABLE)
 
     def test_package_assembly_is_never_added(self):
         # Dataverse refuses it (0x8004023b): the package carries its assemblies.
@@ -561,8 +566,9 @@ class TestApplier(unittest.TestCase):
         plan = self.run_plan()
         self.assertEqual(len(plan["actions"]), 7)  # package, customapi, 3 steps, 2 images
         created = {p: h.get(dv.SOLUTION_HEADER) for p, h in self.api.posts() if p != "AddSolutionComponent"}
-        for entity_set in ("pluginpackages", "customapis", "sdkmessageprocessingsteps", "sdkmessageprocessingstepimages"):
+        for entity_set in ("pluginpackages", "customapis", "sdkmessageprocessingsteps"):
             self.assertEqual(created[entity_set], "prfx_crm_Core", entity_set)
+        self.assertIsNone(created["sdkmessageprocessingstepimages"])
         # deep-inserted parameters are added explicitly; the package's assemblies never are
         added = [b["ComponentType"] for m, p, b, _ in self.api.calls if p == "AddSolutionComponent"]
         self.assertEqual(sorted(added), sorted([10028, 10029]))
@@ -598,7 +604,7 @@ class TestApplier(unittest.TestCase):
 
     def test_membership_update_adds_component(self):
         # Dataverse accepts DoNotIncludeSubcomponents only for a table (type 1): 0x80040216.
-        for kind in ("step", "image", "package"):
+        for kind in ("step", "package"):
             self.applier.run({"op": "update", "kind": kind, "unit": self.unit["name"], "name": "x",
                               "id": "c9", "component": CTYPES[kind], "changes": {"solution": ["absent", "prfx_crm_Core"]}})
             _m, path, body, _h = self.api.calls[-1]

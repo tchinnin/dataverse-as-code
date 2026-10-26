@@ -21,9 +21,10 @@ them with a Dataverse **dev** environment, Terraform style:
 
 The first registration uploads the package (or assembly) as base64 through the
 Web API and records its id in the YAML. Later content changes go through
-``pac plugin push --pluginId <id> --environment <dev url>``. Every component —
-package, assemblies, steps, images, Custom APIs, request parameters and response
-properties — is created in, or added to, the model's solution.
+``pac plugin push --pluginId <id> --environment <dev url>``. Every solution component —
+package or assembly, steps, Custom APIs, request parameters and response
+properties — is created in, or added to, the model's solution. Step images are
+not solution components: they travel with their step.
 
 Deletes only steps and step images that are absent from the model. Packages,
 assemblies, Custom APIs and their parameters are never deleted: they are
@@ -109,18 +110,17 @@ PARAM_TYPE_TO_API = {
 PARAM_TYPE_FROM_API = {v: k for k, v in PARAM_TYPE_TO_API.items()}
 ENTITY_PARAM_TYPES = {"entity", "entity-collection", "entity-reference"}
 
-# Solution components managed by the tool. Plug-in types are not solution
-# components: they travel with their assembly.
+# Solution components managed by the tool. Plug-in types and step images are not
+# solution components: they travel with their assembly and their step.
 COMPONENT_TABLE = {
     "package": "pluginpackage", "assembly": "pluginassembly",
-    "step": "sdkmessageprocessingstep", "image": "sdkmessageprocessingstepimage",
+    "step": "sdkmessageprocessingstep",
     "customapi": "customapi", "request": "customapirequestparameter",
     "response": "customapiresponseproperty",
 }
 # Fixed component type codes; the others are resolved at run time from
 # solutioncomponentdefinitions, never hard-coded.
-FIXED_COMPONENT_TYPE = {"pluginassembly": 91, "sdkmessageprocessingstep": 92,
-                        "sdkmessageprocessingstepimage": 93}
+FIXED_COMPONENT_TYPE = {"pluginassembly": 91, "sdkmessageprocessingstep": 92}
 STEP_FIELD_TO_API = {"configuration": "configuration", "description": "description",
                      "async_auto_delete": "asyncautodelete"}
 IMAGE_FIELD_TO_API = {"alias": "entityalias", "message_property": "messagepropertyname"}
@@ -140,7 +140,7 @@ PHASES = [
 ]
 PHASE = {p: i for i, p in enumerate(PHASES)}
 # Solution membership runs last, parents before children.
-SOLUTION_ORDER = ["package", "assembly", "customapi", "request", "response", "step", "image"]
+SOLUTION_ORDER = ["package", "assembly", "customapi", "request", "response", "step"]
 
 
 def phase_of(a):
@@ -1136,7 +1136,6 @@ def diff(units, server):
                             if hi.get(f) != wi[f]}
                 if ichanges:
                     act("update", "image", unit, iname, id=hi["id"], changes=ichanges, **extra)
-                membership(unit, "image", iname, hi["id"], **extra)
             for ikey in sorted(set(have["images"]) - set(want["images"]) - dup_images):
                 hi = have["images"][ikey]
                 act("delete", "image", unit, f"{want['name']} / {hi['name']}", id=hi["id"],
@@ -1678,13 +1677,9 @@ class Applier:
             "name": wi["name"], "entityalias": wi["alias"], "imagetype": IMAGE_TYPE_TO_API[wi["type"]],
             "attributes": ",".join(wi["attributes"]) or None, "messagepropertyname": wi["message_property"],
             "sdkmessageprocessingstepid@odata.bind": f"/sdkmessageprocessingsteps({self.step_id(a)})",
-        })
+        }, solution=False)
 
     def update_image(self, a):
-        unit = self.unit(a)
-        if a.get("component"):
-            self.add_component(unit, a["id"], a["component"])
-            return
         body = {}
         for field, (_old, new) in a["changes"].items():
             if field == "type":
