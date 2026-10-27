@@ -5,8 +5,8 @@
     "url": "https://github.com/tchinnin"
   },
   "metadata": {
-    "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with the dev environment through plan → confirm → apply",
-    "version": "0.2.0"
+    "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with your environments through plan → confirm → apply",
+    "version": "0.3.0"
   },
   "plugins": [
     {
@@ -19,6 +19,12 @@
       "name": "dataverse-plugins-as-code",
       "description": "Dataverse plug-ins as code: .dv.plugin.yaml registrations (package, steps, images, Custom APIs), plan/apply to dev with pac plugin push, planner agent and validation hook.",
       "source": "./plugins/dataverse-plugins-as-code",
+      "homepage": "https://github.com/tchinnin/dataverse-as-code"
+    },
+    {
+      "name": "dataverse-data-as-code",
+      "description": "Dataverse data as code: .dv.data.yaml rows (base + stage overlays) identified by alternate key, plan/apply to dev, UAT or prod with a user-typed confirmation outside dev, opt-in deactivate/delete, planner agent and validation hook.",
+      "source": "./plugins/dataverse-data-as-code",
       "homepage": "https://github.com/tchinnin/dataverse-as-code"
     }
   ]

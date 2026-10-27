@@ -1,0 +1,15 @@
+# Example only — table and column names follow one illustrative scheme; use your own.
+# Base file: applied to every stage; prod/prfx_parameter.dv.data.yaml overrides some values.
+table: prfx_parameter
+key: prfx_code
+deletion: deactivate                       # rows of this file that disappear are deactivated
+delete_filter: "prfx_origin eq 100000000"  # only rows with this origin belong to the file
+bypass: [sync]                             # custom synchronous plug-ins don't run during apply
+rows:
+  - prfx_code: MAX_RETRY
+    prfx_value: "3"
+    prfx_origin: 100000000
+    prfx_regionid: {ref: prfx_region, key: {prfx_code: EU}}
+  - prfx_code: SUPPORT_EMAIL
+    prfx_value: support-test@contoso.com
+    prfx_origin: 100000000

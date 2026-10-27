@@ -1,0 +1,8 @@
+# Example only — table and column names follow one illustrative scheme; use your own.
+# Base file: applied to every stage.
+table: prfx_region
+key: prfx_code            # an Active alternate key on prfx_code must exist
+deletion: none            # rows not in this file are left alone
+rows:
+  - {prfx_code: EU, prfx_name: Europe}
+  - {prfx_code: NA, prfx_name: North America}

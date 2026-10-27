@@ -1,0 +1,5 @@
+# dvac-data — Python dependencies of dv_data.py
+# Install in a venv:  pip install -r <this file>
+# Authentication uses the Azure CLI (az login) — no Python auth package needed.
+pyyaml>=6.0
+jsonschema>=4.0
