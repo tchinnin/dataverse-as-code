@@ -55,7 +55,7 @@ An assembly is registered in sandbox isolation, stored in the database. The tool
 | `plugin` | required | yes — full type name `Namespace.ClassName` |
 | `message` | required | yes — SDK message, or the unique name of a Custom API |
 | `table` | none | yes — logical name; omit for global messages |
-| `stage` | required | yes — `pre-validation`, `pre-operation`, `post-operation` |
+| `stage` | required | yes — `pre-validation`, `pre-operation`, `post-operation`. Main operation (30) is refused: Dataverse registers that step for a Custom API — set `custom_apis.<name>.plugin` |
 | `mode` | `sync` | yes — `async` requires `post-operation` |
 | `rank` | `1` | yes — execution order among the steps on the same message, table and stage ("Execution Order" in the Plugin Registration Tool); lower runs first |
 | `filtering_attributes` | none (fires on every column) | yes — `Update` only; compared as a set |

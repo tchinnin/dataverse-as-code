@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.2"
+  version: "2.0.3"
 ---
 
 ## Official skill
@@ -159,6 +159,10 @@ Some Custom API fields are fixed at creation. A change to one of them is `! bloc
 - on a parameter: type, optional flag, table
 
 Revert the YAML, or create a new Custom API and migrate its callers. The list is in [`references/plan-apply.md`](references/plan-apply.md).
+
+## Common issue: Custom API implementation step
+
+Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for every Custom API that has a plug-in type. The tool ignores it: never declare it in `steps:` (`validate` refuses `main-operation`), and never delete it. See [`references/plan-apply.md`](references/plan-apply.md).
 
 ## Common issue: stale plan
 

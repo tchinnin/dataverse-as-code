@@ -174,6 +174,10 @@ class TestValidate(unittest.TestCase):
         self.edit("    description: Sets the order number", "    async_auto_delete: true\n    description: Sets the order number")
         self.assertIn("async_auto_delete applies only to async steps", self.errors())
 
+    def test_main_operation_stage_points_to_custom_apis(self):
+        self.edit("    stage: pre-operation\n", "    stage: main-operation\n")
+        self.assertIn("set the plug-in in custom_apis.<name>.plugin", self.errors())
+
     def test_custom_api_rules(self):
         self.edit("    bound_table: prfx_crm_order      # immutable once created\n", "")
         self.assertIn("binding entity requires bound_table", self.errors())
@@ -401,6 +405,55 @@ class TestDiff(unittest.TestCase):
     def test_missing_type_in_assembly_is_created(self):
         del self.asm["types"]["Legacy.Plugins.AccountAddressSync"]
         self.assertEqual(ops(self.plan()), [("create", "plugintype", "Legacy.Plugins.AccountAddressSync")])
+
+
+class TestCustomApiImplementationStep(unittest.TestCase):
+    """Dataverse registers a stage-30 step for every Custom API that has a plug-in type. It
+    belongs to the API, not to the model's steps: it is never planned, so a fresh apply
+    reads back as an empty plan."""
+    API_TYPE = "Contoso.Crm.Plugins.RecalculateOrderApi"
+
+    def setUp(self):
+        self.units = load_units()
+        self.server = mirror_server(self.units)
+        self.pkg = self.server["units"]["prfx_contoso.crm.plugins"]
+
+    def step_row(self, rid, name, message, stage):
+        return {"sdkmessageprocessingstepid": rid, "name": name, "stage": stage, "mode": 0, "rank": 1,
+                "statecode": 0, "_eventhandler_value": self.pkg["types"][self.API_TYPE],
+                "sdkmessageid": {"name": message}, "sdkmessagefilterid": {"primaryobjecttypecode": "prfx_crm_order"}}
+
+    def read_steps(self, *steps):
+        types = self.pkg["types"]
+        api_row = {"customapiid": "c1", "uniquename": "prfx_crm_RecalculateOrder", "bindingtype": 1,
+                   "_plugintypeid_value": types[self.API_TYPE]}
+
+        class Api:
+            def get(self, path):
+                return {"content": "eA=="}
+
+            def get_all(self, path):
+                rows = {"pluginpackages": [{"pluginpackageid": "p1", "uniquename": "prfx_X", "version": "1.0.0"}],
+                        "pluginassemblies": [{"pluginassemblyid": "a1", "name": "X"}],
+                        "plugintypes": [{"plugintypeid": i, "typename": t} for t, i in types.items()],
+                        "sdkmessageprocessingstepimages": [], "sdkmessageprocessingsteps": list(steps),
+                        "customapis": [api_row]}
+                return next((v for k, v in rows.items() if path.startswith(k)), [])
+
+        unit = next(u for u in self.units if u["kind"] == "package")
+        self.pkg["steps"].update(dv.read_unit(Api(), unit)["steps"])
+
+    def test_implementation_step_gives_an_empty_plan(self):
+        self.read_steps(self.step_row("s30", "CustomApi 'prfx_crm_RecalculateOrder' implementation",
+                                      "prfx_crm_RecalculateOrder", dv.MAIN_OPERATION_STAGE))
+        plan = dv.diff(self.units, self.server)
+        self.assertEqual((plan["actions"], plan["blocked"], plan["unmanaged"]), ([], [], []))
+
+    def test_undeclared_user_step_on_the_same_type_is_still_deleted(self):
+        self.read_steps(self.step_row("s30", "CustomApi 'prfx_crm_RecalculateOrder' implementation",
+                                      "prfx_crm_RecalculateOrder", dv.MAIN_OPERATION_STAGE),
+                        self.step_row("s40", "Stray", "prfx_crm_RecalculateOrder", 40))
+        self.assertEqual(ops(dv.diff(self.units, self.server)), [("delete", "step", "Stray")])
 
 
 class TestDuplicateNames(unittest.TestCase):
