@@ -86,6 +86,10 @@ SKIP_DIRS = {"bin", "obj", "node_modules", ".git", ".venv"}
 
 STAGE_TO_API = {"pre-validation": 10, "pre-operation": 20, "post-operation": 40}
 STAGE_FROM_API = {v: k for k, v in STAGE_TO_API.items()}
+# Main operation. Only Dataverse registers a step there: the "CustomApi '<name>'
+# implementation" step of a Custom API that has a plug-in type. It is never read,
+# planned or exported — custom_apis.<name>.plugin owns it.
+MAIN_OPERATION_STAGE = 30
 MODE_TO_API = {"sync": 0, "async": 1}
 MODE_FROM_API = {v: k for k, v in MODE_TO_API.items()}
 IMAGE_TYPE_TO_API = {"pre": 0, "post": 1, "both": 2}
@@ -598,6 +602,10 @@ def _structural(report, data, where):
         message = e.message
         if e.validator == "oneOf" and not e.absolute_path:
             message = "declare exactly one of 'package' or 'assembly'"
+        elif e.validator == "enum" and e.absolute_path[0] == "steps" and e.absolute_path[-1] == "stage" \
+                and str(e.instance).lower() in ("main-operation", "30"):
+            message = ("stage main-operation (30) cannot be registered — Dataverse registers the Custom API "
+                       "implementation step itself; set the plug-in in custom_apis.<name>.plugin")
         report.error(where, f"{message} (at {field})")
 
 
@@ -902,6 +910,8 @@ def read_unit(api, unit):
     for chunk in _chunks(srv["types"].values()):
         for row in api.get_all(f"sdkmessageprocessingsteps?$select={STEP_SELECT}&$expand={STEP_EXPAND}"
                                f"&$filter={_or_filter('_eventhandler_value', chunk)}"):
+            if row.get("stage") == MAIN_OPERATION_STAGE:
+                continue  # a Custom API implementation step — Dataverse owns it
             key = row["name"].lower()
             if key in srv["steps"]:
                 # Names are the identity: two steps sharing one cannot be told apart.

@@ -106,6 +106,7 @@ A blocked change is never run. The plan exits with code 1, and `apply` refuses a
   - request parameters and response properties of a modeled Custom API that are absent from the model
 
   Removing one of these breaks callers, so the decision stays a human one.
+- **Custom API implementation step — ignored.** When a Custom API has a plug-in type, Dataverse registers a step named `CustomApi '<uniquename>' implementation` on that type, at stage 30 (main operation), sync. Dataverse owns it: `custom_apis.<name>.plugin` drives it, and removing it breaks the API. The tool never reads, plans or exports a stage-30 step, so it never appears as `- delete` or `? unmanaged`, and the plan after creating a Custom API is empty. Steps of other stages on the same type are handled as usual.
 - **Adopting an existing project.** Run `export` first. Otherwise every live step is planned as a delete.
 
 ## Stale plan
