@@ -1,12 +1,12 @@
 # dataverse-as-code
 
-A plugin marketplace for Claude Code and GitHub Copilot that manages Dataverse **as code**: declarative YAML models, committed with the project, reconciled with the dev environment through a Terraform-style **plan → confirm → apply** loop.
+A plugin marketplace for Claude Code and GitHub Copilot that manages Dataverse **as code**: declarative YAML models, committed with the project, reconciled with your environments through a Terraform-style **plan → confirm → apply** loop.
 
 ## What this is
 
 Each plugin ships a declarative model format (JSON Schemas + samples), a Python tool (`doctor` / `validate` / `plan` / `apply`), a planner agent that runs the loop with a user confirmation gate, and a validation hook.
 
-The tooling only ever targets the **dev** environment's unmanaged solution. UAT and prod receive changes through the managed solution and your ALM pipeline.
+Customizations (metadata, plug-ins) only ever target the **dev** environment's unmanaged solution; UAT and prod receive them through the managed solution and your ALM pipeline. Data is not part of a solution, so the data tooling targets a named stage — dev, UAT or prod — and, outside dev, applies only after the user has typed the environment URL.
 
 ## Your conventions, not ours
 
@@ -22,6 +22,7 @@ We suggest pairing this marketplace with [`powerplatform-bestpractices`](https:/
 |---|---|---|
 | `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. |
 | `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner` | `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. |
+| `dataverse-data-as-code` | `dvac-data` / `dvac-data-planner` | `dataverse/data/<table>.dv.data.yaml` + `dataverse/data/<stage>/` overlays — configuration and reference rows, identified by alternate key, for dev, UAT or prod. Deactivates or deletes only on opt-in, within a `delete_filter`. |
 
 ## Example
 
@@ -206,6 +207,7 @@ Claude Code:
 /plugin marketplace add tchinnin/dataverse-as-code
 /plugin install dataverse-metadata-as-code@dataverse-as-code
 /plugin install dataverse-plugins-as-code@dataverse-as-code
+/plugin install dataverse-data-as-code@dataverse-as-code
 ```
 
 GitHub Copilot CLI:
@@ -214,6 +216,7 @@ GitHub Copilot CLI:
 copilot plugin marketplace add tchinnin/dataverse-as-code
 copilot plugin install dataverse-metadata-as-code@dataverse-as-code
 copilot plugin install dataverse-plugins-as-code@dataverse-as-code
+copilot plugin install dataverse-data-as-code@dataverse-as-code
 ```
 
 Also install the official Microsoft `dataverse` plugin — the foundation these skills build on. Optionally, add the recommended companion:
@@ -232,7 +235,7 @@ Also install the official Microsoft `dataverse` plugin — the foundation these 
   - a `<repo-root>/.env.dev` file with the same keys (for example created by `ppbp-init`)
 - An unmanaged solution in that environment.
 
-The tool refuses to run unless the target is declared as `dev` and the solution is unmanaged. Details are in each skill's `references/prerequisites.md`.
+The metadata and plug-in tools refuse to run unless the target is declared as `dev` and the solution is unmanaged. The data tool takes `--stage <stage>` and reads `<repo-root>/.env.<stage>` (or the flags or variables); the source must declare that stage. Details are in each skill's `references/prerequisites.md`.
 
 ## Repository map
 

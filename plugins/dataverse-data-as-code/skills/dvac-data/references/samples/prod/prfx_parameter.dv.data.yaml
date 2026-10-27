@@ -1,0 +1,7 @@
+# Example only. Stage overlay: merged over the base file when planning --stage prod.
+# Rows match base rows by key; listed columns replace the base values.
+table: prfx_parameter
+rows:
+  - prfx_code: SUPPORT_EMAIL
+    prfx_value: support@contoso.com
+    ownerid: {ref: team, match: {name: Config Admins}}   # owner differs per stage

@@ -1,0 +1,11 @@
+{
+  "name": "dataverse-data-as-code",
+  "version": "1.0.0",
+  "description": "Dataverse data as code: .dv.data.yaml rows (base + stage overlays) identified by alternate key, Terraform-style plan/apply to dev, UAT or prod with a user-typed confirmation outside dev, opt-in deactivate/delete, business-logic bypass with consent, planner agent and validation hook.",
+  "author": {
+    "name": "Théophile Chin-nin",
+    "url": "https://github.com/tchinnin"
+  },
+  "homepage": "https://github.com/tchinnin/dataverse-as-code",
+  "license": "MIT"
+}
