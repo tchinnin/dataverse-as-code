@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.3"
+  version: "2.0.4"
 ---
 
 ## Official skill
@@ -183,6 +183,7 @@ Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for ev
 ## Skill boundaries
 
 - Running a registration change end to end → agent `dvac-plugins-planner`
+- Documentation of the execution pipeline and the Custom APIs → `dvac-plugins-docs`
 - Dataverse schema as code → `dvac-metadata`
 - Project scaffolding, plug-in code, step and Custom API design, versioning and build → the project's best practices
 - PAC CLI authentication, connection diagnostics → `dataverse:dv-connect`

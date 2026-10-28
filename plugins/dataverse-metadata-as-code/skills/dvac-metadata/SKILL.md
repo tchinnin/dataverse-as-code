@@ -16,7 +16,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<schema change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.1.0"
+  version: "2.1.1"
 ---
 
 ## Official skill
@@ -50,7 +50,7 @@ Before writing the model, look for the project's own best practices (README, `AG
         └── tables/<key>.dv.metadata.yaml # one table per file; file name = key
 ```
 
-- **`dataverse/metadata/` is the source of truth.** If the project keeps a human-readable view of the model (ERD, design docs), update it in the same change; the YAML wins on conflict.
+- **`dataverse/metadata/` is the source of truth.** If the project keeps a human-readable view of the model (ERD, design docs), update it in the same change — `dvac-metadata-docs` regenerates a Mermaid ERD from the YAML; the YAML wins on conflict.
 - The `*.dv.metadata.yaml` suffix leaves room for future `dataverse/*` model families that follow the same pattern.
 
 ## What this skill adds
@@ -141,6 +141,7 @@ A change made directly in the environment shows up as `~ update` (the model woul
 ## Skill boundaries
 
 - Running a schema change end to end → agent `dvac-metadata-planner`
+- ERD of the model → `dvac-metadata-docs`
 - Plug-in registrations as code → `dvac-plugins`
 - Schema design conventions and reviews → the project's best practices
 - Forms, views, N:N relationships, calculated/rollup columns → `dataverse:dv-metadata` (outside this model)
