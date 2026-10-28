@@ -48,18 +48,35 @@ marketplace: dataverse-as-code
     ├── .claude-plugin/plugin.json        ← the only manifest (Claude Code and Copilot)
     ├── agents/dvac-<domain>-planner.agent.md
     ├── hooks/hooks.json
-    └── skills/dvac-<domain>/
-        ├── SKILL.md
-        ├── references/                   ← format.md, plan-apply.md, prerequisites.md, schemas/, samples/
-        ├── scripts/                      ← dv_<domain>.py, hook_validate.py, requirements.txt
-        └── tests/                        ← required (stdlib unittest, offline)
+    └── skills/
+        ├── dvac-<domain>/
+        │   ├── SKILL.md
+        │   ├── references/               ← format.md, plan-apply.md, prerequisites.md, schemas/, samples/
+        │   ├── scripts/                  ← dv_<domain>.py, hook_validate.py, requirements.txt
+        │   └── tests/                    ← required (stdlib unittest, offline)
+        └── dvac-<domain>-docs/           ← optional documentation skill (see below)
+            ├── SKILL.md
+            ├── references/               ← <output>.md, examples/ (generated from the model samples)
+            ├── scripts/                  ← dv_<domain>_docs.py, requirements.txt
+            └── tests/                    ← required (stdlib unittest, offline)
 ```
 
 One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. a future `dataverse-security-as-code`).
 
+### Documentation skills
+
+A plugin may add one documentation skill, `dvac-<domain>-docs`, that generates documentation (Markdown, Mermaid) from the model files. It has no agent and no hook.
+
+- **Offline and read-only.** It never contacts an environment and never writes the model; the only file it writes is the `--out` the user gives. It owns no project path.
+- **Deterministic.** Same model, same bytes: stable sort order, no date, source paths relative to the repo root. It offers `--out <file> --check` (exit 1 when the file is stale) for CI.
+- **It reuses the model skill of the same plugin.** Its script imports `../dvac-<domain>/scripts/dv_<domain>.py` to load and validate the model, and refuses an invalid model. This is the one allowed import: both skills ship in the same plugin. Never import across plugins.
+- **Convention-neutral.** It shows the model as written and states only platform facts (execution order, cardinality). No design or naming judgement.
+- `references/examples/` holds the output generated from the model skill's samples; a test fails when it is stale.
+
+
 ### Skills
 
-Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`.
+Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, and its `## Connection` states that it needs none.
 
 Implementation pitfalls use the two-level pattern: a short `## Common issue: <topic>` section in SKILL.md (2–3 sentences) pointing to the full treatment in `references/<topic>.md`.
 
@@ -94,7 +111,7 @@ The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/
 ## Skill Authoring Standards
 
 - **Language:** English everywhere.
-- **Naming:** skills `dvac-<domain>`, agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
+- **Naming:** skills `dvac-<domain>` (documentation skills `dvac-<domain>-docs`), agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
 - **Frontmatter:**
 
 ```yaml
@@ -130,6 +147,8 @@ SemVer: **MAJOR** — breaking model format, path or CLI change, skill/agent rem
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins/tests
 python3 -m unittest discover -s plugins/dataverse-data-as-code/skills/dvac-data/tests
+python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-docs/tests
+python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-docs/tests
 ```
 
 Every suite must pass, and each `TestSharedBlock` must run (not skip).

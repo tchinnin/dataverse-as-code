@@ -1,0 +1,5 @@
+# dvac-metadata-docs — Python dependencies of dv_metadata_docs.py
+# The tool loads and validates the model with ../../dvac-metadata/scripts/dv_metadata.py,
+# so it needs the same packages. Install in a venv:  pip install -r <this file>
+pyyaml>=6.0
+jsonschema>=4.0

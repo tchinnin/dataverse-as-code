@@ -59,7 +59,6 @@ Localizable fields: table `label`, `label_plural`, `description`; column `label`
 - A map must contain the base language (`locale`) — Dataverse needs it to create the component.
 - A language of `languages` that a label doesn't translate is a **warning**, not an error. Without `languages`, no translation is expected.
 - The plan compares only the languages the model declares; `apply` writes them with `MergeLabels`, so other translations on the server are kept.
-- Naming rules (such as the ` Choice` suffix) are checked on the base-language text only.
 - Every language used must be **provisioned** in the environment: `doctor` checks it and `plan` blocks otherwise. The same languages must also be enabled in test and production before the solution is imported.
 
 ## Global Choice
