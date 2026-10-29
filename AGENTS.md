@@ -54,11 +54,16 @@ marketplace: dataverse-as-code
         │   ├── references/               ← format.md, plan-apply.md, prerequisites.md, schemas/, samples/
         │   ├── scripts/                  ← dv_<domain>.py, hook_validate.py, requirements.txt
         │   └── tests/                    ← required (stdlib unittest, offline)
-        └── dvac-<domain>-docs/           ← optional documentation skill (see below)
+        ├── dvac-<domain>-docs/           ← optional documentation skill (see below)
+        │   ├── SKILL.md
+        │   ├── references/               ← <output>.md, examples/ (generated from the model samples)
+        │   ├── scripts/                  ← dv_<domain>_docs.py, requirements.txt
+        │   └── tests/                    ← required (stdlib unittest, offline)
+        └── dvac-<domain>-import/         ← optional import skill (see below)
             ├── SKILL.md
-            ├── references/               ← <output>.md, examples/ (generated from the model samples)
-            ├── scripts/                  ← dv_<domain>_docs.py, requirements.txt
-            └── tests/                    ← required (stdlib unittest, offline)
+            ├── references/               ← solution-mapping.md
+            ├── scripts/                  ← dv_<domain>_import.py, requirements.txt
+            └── tests/                    ← required, with fixtures/ (a synthetic unpacked solution)
 ```
 
 One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. a future `dataverse-security-as-code`).
@@ -73,10 +78,22 @@ A plugin may add one documentation skill, `dvac-<domain>-docs`, that generates d
 - **Convention-neutral.** It shows the model as written and states only platform facts (execution order, cardinality). No design or naming judgement.
 - `references/examples/` holds the output generated from the model skill's samples; a test fails when it is stale.
 
+### Import skills
+
+A plugin may add one import skill, `dvac-<domain>-import`, that regenerates or aligns the model files from solutions unpacked in the repo (`pac solution unpack` layout). It has no agent and no hook.
+
+- **Offline.** It reads the unpacked solution and the model files, never an environment. Exporting and unpacking belong to the official `dataverse:dv-solution` skill.
+- **Diff first.** Without `--write` it writes nothing: it prints new, changed (with a diff) and unchanged files, the model entries the solution doesn't hold and the components the format cannot describe. `--write` writes only after the whole result passes the model skill's validator.
+- **Never reduces the model.** Entries only in the model are kept and listed, never removed — for plug-ins a removed step would be deleted by the next `apply`.
+- **Keeps what the solution doesn't carry** (ids, build paths, state, optional fields the file leaves unmanaged) and never writes a GUID from the solution.
+- **Minimal rewrites.** A file whose data doesn't change is not rewritten, so its comments survive.
+- **No silent loss.** Every component it cannot describe is listed with its reason.
+- It imports the model skill of the same plugin, like a documentation skill. Its tests run on a synthetic fixture in `tests/fixtures/` that mirrors the model skill's samples, and the import of that fixture into the samples must report no change. Never commit an export from a real project.
+
 
 ### Skills
 
-Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, and its `## Connection` states that it needs none.
+Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, an import skill `## Workflow: import → review → write → plan`; the `## Connection` of both states that they need none.
 
 Implementation pitfalls use the two-level pattern: a short `## Common issue: <topic>` section in SKILL.md (2–3 sentences) pointing to the full treatment in `references/<topic>.md`.
 
@@ -111,7 +128,7 @@ The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/
 ## Skill Authoring Standards
 
 - **Language:** English everywhere.
-- **Naming:** skills `dvac-<domain>` (documentation skills `dvac-<domain>-docs`), agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
+- **Naming:** skills `dvac-<domain>` (documentation skills `dvac-<domain>-docs`, import skills `dvac-<domain>-import`), agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
 - **Frontmatter:**
 
 ```yaml
@@ -149,6 +166,8 @@ python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-pl
 python3 -m unittest discover -s plugins/dataverse-data-as-code/skills/dvac-data/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-docs/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-docs/tests
+python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-import/tests
+python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-import/tests
 ```
 
 Every suite must pass, and each `TestSharedBlock` must run (not skip).

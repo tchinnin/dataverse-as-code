@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="Reason">
+  <displayname default="Reason">
+    <label description="Reason" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>Reason</name>
+  <type>10</type>
+</customapirequestparameter>

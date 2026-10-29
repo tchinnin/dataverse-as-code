@@ -16,7 +16,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<schema change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.1.1"
+  version: "2.1.2"
 ---
 
 ## Official skill
@@ -125,7 +125,7 @@ A column type change (including a formula's `result_type`), a change of bound Ch
 
 ## Common issue: changes made in the maker portal
 
-A change made directly in the environment shows up as `~ update` (the model would revert it) or as `? unmanaged`. Bring the change into the YAML **before** applying, or the next apply overwrites it.
+A change made directly in the environment shows up as `~ update` (the model would revert it) or as `? unmanaged`. Bring the change into the YAML **before** applying, or the next apply overwrites it — `dvac-metadata-import` does it from the exported, unpacked solution.
 
 ## Anti-patterns (DO NOT DO)
 
@@ -142,6 +142,7 @@ A change made directly in the environment shows up as `~ update` (the model woul
 
 - Running a schema change end to end → agent `dvac-metadata-planner`
 - ERD of the model → `dvac-metadata-docs`
+- Model from an unpacked solution (adoption, realignment) → `dvac-metadata-import`
 - Plug-in registrations as code → `dvac-plugins`
 - Schema design conventions and reviews → the project's best practices
 - Forms, views, N:N relationships, calculated/rollup columns → `dataverse:dv-metadata` (outside this model)

@@ -1,0 +1,19 @@
+<customapi uniquename="prfx_crm_RecalculateOrder">
+  <allowedcustomprocessingsteptype>1</allowedcustomprocessingsteptype>
+  <bindingtype>1</bindingtype>
+  <boundentitylogicalname>prfx_crm_order</boundentitylogicalname>
+  <description default="Recalculates the order total from its lines.">
+    <label description="Recalculates the order total from its lines." languagecode="1033" />
+  </description>
+  <displayname default="Recalculate order">
+    <label description="Recalculate order" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>prfx_crm_RecalculateOrder</name>
+  <plugintypeid>
+    <plugintypeexportkey>D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4D4</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

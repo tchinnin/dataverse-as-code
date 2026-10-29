@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic test fixture in the SolutionPackager layout. -->
+<Entity xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Name LocalizedName="Order" OriginalName="Order">prfx_crm_Order</Name>
+  <EntityInfo>
+    <entity Name="prfx_crm_Order">
+      <LocalizedNames>
+        <LocalizedName description="Order" languagecode="1033" />
+      </LocalizedNames>
+      <LocalizedCollectionNames>
+        <LocalizedCollectionName description="Orders" languagecode="1033" />
+      </LocalizedCollectionNames>
+      <Descriptions>
+        <Description description="Commercial order placed by a customer; tracks status and amount." languagecode="1033" />
+      </Descriptions>
+      <attributes>
+        <attribute PhysicalName="prfx_crm_OrderId">
+          <Type>primarykey</Type>
+          <Name>prfx_crm_orderid</Name>
+          <LogicalName>prfx_crm_orderid</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Order" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="OwnerId">
+          <Type>owner</Type>
+          <Name>ownerid</Name>
+          <LogicalName>ownerid</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Owner" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="statecode">
+          <Type>state</Type>
+          <Name>statecode</Name>
+          <LogicalName>statecode</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Status" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_OrderNumber">
+          <Type>nvarchar</Type>
+          <Name>prfx_ordernumber</Name>
+          <LogicalName>prfx_ordernumber</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>PrimaryName|ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat>ORD-{SEQNUM:6}</AutoNumberFormat>
+          <Format>text</Format>
+          <MaxLength>100</MaxLength>
+          <displaynames>
+            <displayname description="Order Number" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_CustomerId">
+          <Type>lookup</Type>
+          <Name>prfx_customerid</Name>
+          <LogicalName>prfx_customerid</LogicalName>
+          <RequiredLevel>required</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <LookupStyle>single</LookupStyle>
+          <LookupTypes />
+          <displaynames>
+            <displayname description="Customer" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="Customer who placed the order." languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_StatusCode">
+          <Type>picklist</Type>
+          <Name>prfx_statuscode</Name>
+          <LogicalName>prfx_statuscode</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <AppDefaultValue>100000000</AppDefaultValue>
+          <OptionSetName>prfx_crm_choice_OrderStatus</OptionSetName>
+          <displaynames>
+            <displayname description="Status" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="Order lifecycle; drives fulfilment." languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_Amount">
+          <Type>decimal</Type>
+          <Name>prfx_amount</Name>
+          <LogicalName>prfx_amount</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <MinValue>0</MinValue>
+          <MaxValue>1000000000</MaxValue>
+          <Accuracy>2</Accuracy>
+          <displaynames>
+            <displayname description="Amount" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_AmountWithTax">
+          <Type>decimal</Type>
+          <Name>prfx_amountwithtax</Name>
+          <LogicalName>prfx_amountwithtax</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>3</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <MinValue>-100000000000</MinValue>
+          <MaxValue>100000000000</MaxValue>
+          <Accuracy>2</Accuracy>
+          <FormulaDefinitionFileName>/Formulas/prfx_crm_order-FormulaDefinitions.yaml</FormulaDefinitionFileName>
+          <displaynames>
+            <displayname description="Amount Incl. Tax" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="Amount with 20% tax; empty when the amount is 0 or missing." languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_OrderedOn">
+          <Type>datetime</Type>
+          <Name>prfx_orderedon</Name>
+          <LogicalName>prfx_orderedon</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>datetime</Format>
+          <Behavior>1</Behavior>
+          <displaynames>
+            <displayname description="Ordered On" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_HasPriority">
+          <Type>bit</Type>
+          <Name>prfx_haspriority</Name>
+          <LogicalName>prfx_haspriority</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <AppDefaultValue>0</AppDefaultValue>
+          <optionset Name="prfx_haspriority">
+            <OptionSetType>bit</OptionSetType>
+            <options>
+              <option value="1">
+                <labels>
+                  <label description="Yes" languagecode="1033" />
+                </labels>
+              </option>
+              <option value="0">
+                <labels>
+                  <label description="No" languagecode="1033" />
+                </labels>
+              </option>
+            </options>
+          </optionset>
+          <displaynames>
+            <displayname description="Priority Order" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_Attachment">
+          <Type>file</Type>
+          <Name>prfx_attachment</Name>
+          <LogicalName>prfx_attachment</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <MaxValue>10240</MaxValue>
+          <displaynames>
+            <displayname description="Signed Order Form" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+      </attributes>
+      <EntitySetName>prfx_crm_orders</EntitySetName>
+      <OwnershipTypeMask>UserOwned</OwnershipTypeMask>
+      <IsAuditEnabled>0</IsAuditEnabled>
+      <IsActivity>0</IsActivity>
+    </entity>
+  </EntityInfo>
+  <RibbonDiffXml />
+</Entity>

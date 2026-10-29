@@ -20,8 +20,8 @@ We suggest pairing this marketplace with [`powerplatform-bestpractices`](https:/
 
 | Plugin | Skill / agent | Model |
 |---|---|---|
-| `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner`, `dvac-metadata-docs` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. `dvac-metadata-docs` generates a Mermaid ERD of the model. |
-| `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner`, `dvac-plugins-docs` | `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. `dvac-plugins-docs` documents the execution pipeline and the Custom APIs with Mermaid diagrams. |
+| `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner`, `dvac-metadata-docs`, `dvac-metadata-import` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. `dvac-metadata-docs` generates a Mermaid ERD of the model; `dvac-metadata-import` regenerates the model from an unpacked solution. |
+| `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner`, `dvac-plugins-docs`, `dvac-plugins-import` | `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. `dvac-plugins-docs` documents the execution pipeline and the Custom APIs with Mermaid diagrams; `dvac-plugins-import` regenerates the files from an unpacked solution. |
 | `dataverse-data-as-code` | `dvac-data` / `dvac-data-planner` | `dataverse/data/<table>.dv.data.yaml` + `dataverse/data/<stage>/` overlays — configuration and reference rows, identified by alternate key, for dev, UAT or prod. Deactivates or deletes only on opt-in, within a `delete_filter`. |
 
 ## Example
@@ -251,7 +251,8 @@ The metadata and plug-in tools refuse to run unless the target is declared as `d
         ├── hooks/hooks.json
         └── skills/
             ├── dvac-<domain>/SKILL.md (+ references/, scripts/, tests/)
-            └── dvac-<domain>-docs/SKILL.md (+ references/, scripts/, tests/)   # optional, offline documentation
+            ├── dvac-<domain>-docs/SKILL.md (+ references/, scripts/, tests/)     # optional, offline documentation
+            └── dvac-<domain>-import/SKILL.md (+ references/, scripts/, tests/)   # optional, model from an unpacked solution
 ```
 
 Authoring standards, naming, versioning and commit conventions are in [AGENTS.md](./AGENTS.md).

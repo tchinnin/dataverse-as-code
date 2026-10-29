@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic test fixture in the SolutionPackager layout. -->
+<Entity xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Name LocalizedName="Customer" OriginalName="Customer">prfx_crm_Customer</Name>
+  <EntityInfo>
+    <entity Name="prfx_crm_Customer">
+      <LocalizedNames>
+        <LocalizedName description="Customer" languagecode="1033" />
+      </LocalizedNames>
+      <LocalizedCollectionNames>
+        <LocalizedCollectionName description="Customers" languagecode="1033" />
+      </LocalizedCollectionNames>
+      <Descriptions>
+        <Description description="Company the business sells to; anchors orders and commercial follow-up." languagecode="1033" />
+      </Descriptions>
+      <attributes>
+        <attribute PhysicalName="prfx_crm_CustomerId">
+          <Type>primarykey</Type>
+          <Name>prfx_crm_customerid</Name>
+          <LogicalName>prfx_crm_customerid</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Customer" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="OwnerId">
+          <Type>owner</Type>
+          <Name>ownerid</Name>
+          <LogicalName>ownerid</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Owner" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="statecode">
+          <Type>state</Type>
+          <Name>statecode</Name>
+          <LogicalName>statecode</LogicalName>
+          <RequiredLevel>systemrequired</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>0</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <displaynames>
+            <displayname description="Status" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_Name">
+          <Type>nvarchar</Type>
+          <Name>prfx_name</Name>
+          <LogicalName>prfx_name</LogicalName>
+          <RequiredLevel>required</RequiredLevel>
+          <DisplayMask>PrimaryName|ValidForAdvancedFind|ValidForForm|ValidForGrid|RequiredForForm</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>text</Format>
+          <MaxLength>160</MaxLength>
+          <Length>320</Length>
+          <displaynames>
+            <displayname description="Company Name" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_Website">
+          <Type>nvarchar</Type>
+          <Name>prfx_website</Name>
+          <LogicalName>prfx_website</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>url</Format>
+          <MaxLength>200</MaxLength>
+          <displaynames>
+            <displayname description="Website" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_EmployeeCount">
+          <Type>int</Type>
+          <Name>prfx_employeecount</Name>
+          <LogicalName>prfx_employeecount</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>none</Format>
+          <MinValue>0</MinValue>
+          <MaxValue>1000000</MaxValue>
+          <displaynames>
+            <displayname description="Employee Count" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_AnnualRevenue">
+          <Type>decimal</Type>
+          <Name>prfx_annualrevenue</Name>
+          <LogicalName>prfx_annualrevenue</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <MinValue>0</MinValue>
+          <MaxValue>100000000000</MaxValue>
+          <Accuracy>2</Accuracy>
+          <displaynames>
+            <displayname description="Annual Revenue" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_IsActive">
+          <Type>bit</Type>
+          <Name>prfx_isactive</Name>
+          <LogicalName>prfx_isactive</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <AppDefaultValue>1</AppDefaultValue>
+          <optionset Name="prfx_isactive">
+            <OptionSetType>bit</OptionSetType>
+            <options>
+              <option value="1">
+                <labels>
+                  <label description="Yes" languagecode="1033" />
+                </labels>
+              </option>
+              <option value="0">
+                <labels>
+                  <label description="No" languagecode="1033" />
+                </labels>
+              </option>
+            </options>
+          </optionset>
+          <displaynames>
+            <displayname description="Active Customer" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_SegmentCode">
+          <Type>picklist</Type>
+          <Name>prfx_segmentcode</Name>
+          <LogicalName>prfx_segmentcode</LogicalName>
+          <RequiredLevel>required</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <AppDefaultValue>100000000</AppDefaultValue>
+          <OptionSetName>prfx_crm_choice_CustomerSegment</OptionSetName>
+          <displaynames>
+            <displayname description="Segment" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="Drives service level and pricing rules." languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_IndustryCode">
+          <Type>multiselectpicklist</Type>
+          <Name>prfx_industrycode</Name>
+          <LogicalName>prfx_industrycode</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <OptionSetName>prfx_crm_choice_Industry</OptionSetName>
+          <displaynames>
+            <displayname description="Industries" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="Used for market segmentation reporting." languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_Notes">
+          <Type>ntext</Type>
+          <Name>prfx_notes</Name>
+          <LogicalName>prfx_notes</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>text</Format>
+          <MaxLength>4000</MaxLength>
+          <displaynames>
+            <displayname description="Notes" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_ContactEmail">
+          <Type>nvarchar</Type>
+          <Name>prfx_contactemail</Name>
+          <LogicalName>prfx_contactemail</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>email</Format>
+          <MaxLength>100</MaxLength>
+          <displaynames>
+            <displayname description="Contact Email" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_FoundedOn">
+          <Type>datetime</Type>
+          <Name>prfx_foundedon</Name>
+          <LogicalName>prfx_foundedon</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat></AutoNumberFormat>
+          <Format>date</Format>
+          <Behavior>2</Behavior>
+          <displaynames>
+            <displayname description="Founded On" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+        <attribute PhysicalName="prfx_CustomerNumber">
+          <Type>nvarchar</Type>
+          <Name>prfx_customernumber</Name>
+          <LogicalName>prfx_customernumber</LogicalName>
+          <RequiredLevel>none</RequiredLevel>
+          <DisplayMask>ValidForAdvancedFind|ValidForForm|ValidForGrid</DisplayMask>
+          <IsCustomField>1</IsCustomField>
+          <IsAuditEnabled>1</IsAuditEnabled>
+          <SourceType>0</SourceType>
+          <AutoNumberFormat>CUS-{SEQNUM:6}</AutoNumberFormat>
+          <Format>text</Format>
+          <MaxLength>100</MaxLength>
+          <displaynames>
+            <displayname description="Customer Number" languagecode="1033" />
+          </displaynames>
+          <Descriptions>
+            <Description description="" languagecode="1033" />
+          </Descriptions>
+        </attribute>
+      </attributes>
+      <EntitySetName>prfx_crm_customers</EntitySetName>
+      <OwnershipTypeMask>UserOwned</OwnershipTypeMask>
+      <IsAuditEnabled>0</IsAuditEnabled>
+      <IsActivity>0</IsActivity>
+      <EntityKeys>
+        <EntityKey>
+          <Name>prfx_crm_customer_customernumber_key</Name>
+          <LogicalName>prfx_crm_customer_customernumber_key</LogicalName>
+          <EntityKeyAttributes>
+            <AttributeName>prfx_customernumber</AttributeName>
+          </EntityKeyAttributes>
+          <displaynames>
+            <displayname description="Customer Number Key" languagecode="1033" />
+          </displaynames>
+        </EntityKey>
+      </EntityKeys>
+    </entity>
+  </EntityInfo>
+  <RibbonDiffXml />
+</Entity>

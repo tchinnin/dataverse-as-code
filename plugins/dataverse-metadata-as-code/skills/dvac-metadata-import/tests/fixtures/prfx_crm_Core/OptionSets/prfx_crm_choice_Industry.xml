@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="prfx_crm_choice_Industry" localizedName="Industry Choice" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Industry Choice" languagecode="1033" />
+  </displaynames>
+  <Descriptions>
+    <Description description="Industries a customer operates in (multi-select)." languagecode="1033" />
+  </Descriptions>
+  <options>
+    <option value="100000000" IsHidden="0">
+      <labels>
+        <label description="Technology" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000001" IsHidden="0">
+      <labels>
+        <label description="Finance" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000002" IsHidden="0">
+      <labels>
+        <label description="Healthcare" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000003" IsHidden="0">
+      <labels>
+        <label description="Manufacturing" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>
