@@ -1,0 +1,1 @@
+prfx_amountwithtax: =If(prfx_amount > 0, prfx_amount * 1.2)

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="prfx_crm_choice_OrderStatus" localizedName="Order Status Choice" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Order Status Choice" languagecode="1033" />
+  </displaynames>
+  <Descriptions>
+    <Description description="Lifecycle of a customer order." languagecode="1033" />
+  </Descriptions>
+  <options>
+    <option value="100000000" Color="#9EA6B3" IsHidden="0">
+      <labels>
+        <label description="Draft" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000001" Color="#1B8ED4" IsHidden="0">
+      <labels>
+        <label description="Confirmed" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000002" Color="#37B400" IsHidden="0">
+      <labels>
+        <label description="Shipped" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000003" Color="#E81123" IsHidden="0">
+      <labels>
+        <label description="Cancelled" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

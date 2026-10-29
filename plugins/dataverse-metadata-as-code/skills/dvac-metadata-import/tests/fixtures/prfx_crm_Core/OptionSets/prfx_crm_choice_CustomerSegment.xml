@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="prfx_crm_choice_CustomerSegment" localizedName="Customer Segment Choice" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Customer Segment Choice" languagecode="1033" />
+  </displaynames>
+  <Descriptions>
+    <Description description="Commercial segmentation of a customer." languagecode="1033" />
+  </Descriptions>
+  <options>
+    <option value="100000000" Color="#9EA6B3" IsHidden="0">
+      <labels>
+        <label description="Standard" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000001" Color="#1B8ED4" IsHidden="0">
+      <labels>
+        <label description="Premium" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="100000002" Color="#FFB900" IsHidden="0">
+      <labels>
+        <label description="Key Account" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

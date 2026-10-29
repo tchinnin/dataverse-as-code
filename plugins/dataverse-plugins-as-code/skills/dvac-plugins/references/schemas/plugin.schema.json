@@ -28,7 +28,7 @@
         "solution": {
           "type": "string",
           "description": "Unique name of the unmanaged dev solution that receives every registration.",
-          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+          "pattern": "^[A-Za-z0-9_]+$"
         }
       }
     },

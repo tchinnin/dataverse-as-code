@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SdkMessageProcessingStep Name="Legacy - Account address sync" SdkMessageProcessingStepId="{0b0a0004-0000-4000-8000-000000000014}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SdkMessageId>20bebb1b-ea3e-db11-86a7-000a3a5473e8</SdkMessageId>
+  <PluginTypeName>Legacy.Plugins.AccountAddressSync, Legacy.Plugins, Version=1.0.0.0, Culture=neutral, PublicKeyToken=0123456789abcdef</PluginTypeName>
+  <PluginTypeId>7a1d2c4b-0000-4000-8000-000000000002</PluginTypeId>
+  <PrimaryEntity>account</PrimaryEntity>
+  <AsyncAutoDelete>0</AsyncAutoDelete>
+  <FilteringAttributes>address1_city,address1_postalcode</FilteringAttributes>
+  <InvocationSource>1</InvocationSource>
+  <Mode>0</Mode>
+  <Rank>10</Rank>
+  <EventHandlerTypeCode>4602</EventHandlerTypeCode>
+  <Stage>20</Stage>
+  <IsCustomizable>1</IsCustomizable>
+  <IsHidden>0</IsHidden>
+  <SupportedDeployment>0</SupportedDeployment>
+  <Configuration>{"country": "FR"}</Configuration>
+  <SdkMessageProcessingStepImages>
+    <SdkMessageProcessingStepImage Name="PreImage">
+      <SdkMessageProcessingStepImageId>{0c0a0004-0000-4000-8000-000000000024}</SdkMessageProcessingStepImageId>
+      <Attributes>address1_city,address1_postalcode</Attributes>
+      <EntityAlias>PreImage</EntityAlias>
+      <ImageType>0</ImageType>
+      <MessagePropertyName>Target</MessagePropertyName>
+      <IsCustomizable>1</IsCustomizable>
+    </SdkMessageProcessingStepImage>
+  </SdkMessageProcessingStepImages>
+</SdkMessageProcessingStep>

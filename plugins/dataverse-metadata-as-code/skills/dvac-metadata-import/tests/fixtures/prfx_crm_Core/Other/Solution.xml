@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic test fixture in the SolutionPackager layout. It mirrors the dvac-metadata samples. -->
+<ImportExportXml version="9.2.0.0" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SolutionManifest>
+    <UniqueName>prfx_crm_Core</UniqueName>
+    <LocalizedNames>
+      <LocalizedName description="CRM Core" languagecode="1033" />
+    </LocalizedNames>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>prfx</UniqueName>
+      <CustomizationPrefix>prfx</CustomizationPrefix>
+      <CustomizationOptionValuePrefix>10000</CustomizationOptionValuePrefix>
+    </Publisher>
+  </SolutionManifest>
+</ImportExportXml>
