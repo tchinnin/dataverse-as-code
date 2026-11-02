@@ -496,6 +496,12 @@ class TestReadServer(unittest.TestCase):
                          [("create", "prfx_region", 'prfx_code="NA"'),
                           ("create", "prfx_parameter", 'prfx_code="SUPPORT_EMAIL"')])
         self.assertTrue(any("prfx_regions(prfx_code='EU')" in p for p in api.paths))
+        selects = [urllib.parse.parse_qs(urllib.parse.urlsplit(p).query).get("$select", [""])[0].split(",")
+                   for p in api.paths if "/prfx_parameters?" in p]
+        self.assertTrue(selects)
+        for select in selects:
+            self.assertNotIn("prfx_regionid", select)
+        self.assertTrue(any("_prfx_regionid_value" in s for s in selects))
 
     def test_missing_table_and_inactive_key_block(self):
         entities = {"prfx_region": entity("prfx_region", "prfx_regions", {"prfx_code": "StringType"})}
