@@ -765,7 +765,9 @@ def read_rows(api, info, spec):
     cols = spec["key"]
     managed = sorted({c for r in spec["rows"] for c in r} | set(cols))
     state = ["statecode"] if "statecode" in info["attrs"] else []
-    select = ",".join([info["pk"], *[c for c in managed if c in info["attrs"] and c != info["pk"]], *state])
+    # The Web API selects a lookup only as _<col>_value — the raw logical name is a 400.
+    select = ",".join([info["pk"], *[f"_{c}_value" if info["attrs"][c]["type"] in LOOKUP_TYPES else c
+                                     for c in managed if c in info["attrs"] and c != info["pk"]], *state])
     found = {}
     rows = spec["rows"]
     for i in range(0, len(rows), KEY_CHUNK):
