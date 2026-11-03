@@ -58,5 +58,5 @@ If the plan has blocked items, do not offer to apply. Propose a fix and re-plan 
 1. Run `DV apply dataverse/data --stage <s> --plan-file <plan file>`, adding `--confirm-url "<confirm-url>"` and `--confirm-deletes <confirm-deletes>` only when the caller gave them.
 2. If it is **refused** for the typed confirmation, return the message. Don't retry with other values.
 3. If it reports a **stale plan**, run `DV plan … --json` again and return the new plan for confirmation. Don't apply it.
-4. On a failure, explain it using `references/plan-apply.md` and `dataverse:dv-data`. Propose a fix, but don't retry without a new approval.
+4. On a failure, explain it using `references/plan-apply.md` and `dataverse:dv-data`. Propose a fix, but don't retry without a new approval. On `outcome unknown`, never re-apply the same plan file: run `DV plan … --json` again and return the new plan for confirmation.
 5. On success, report what was applied and confirm that the post-apply plan is empty. Remind the user to commit `dataverse/data/`.

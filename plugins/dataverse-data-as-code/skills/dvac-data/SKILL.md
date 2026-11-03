@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
 argument-hint: "<data change request>"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 ## Official skill
@@ -60,7 +60,7 @@ One file per table, named after its logical name. An overlay row matches a base 
 | `doctor --stage <s> [data-dir]` | read | Deps, `az` session, stage guard, each table and its alternate key, bypass privilege |
 | `validate <dir\|file> [--stage <s>]` | no | Structural (JSON Schema) + semantic checks (keys, overlays, filters, references) |
 | `plan <data-dir> --stage <s> [--json]` | read | Diff → `+ create` / `~ update` / `~ activate` / `- deactivate` / `- delete` / `! blocked` |
-| `apply <data-dir> --stage <s> --plan-file <f> [--confirm-url …] [--confirm-deletes …]` | write | Runs exactly the saved plan. Aborts if stale. |
+| `apply <data-dir> --stage <s> --plan-file <f> [--confirm-url …] [--confirm-deletes …] [--batch-size <n>]` | write | Runs exactly the saved plan, in `CreateMultiple`/`UpdateMultiple` batches where the table supports them (default 100 rows). Aborts if stale. |
 
 - **A PostToolUse hook** (Claude Code) that validates after every `*.dv.data.yaml` edit. On GitHub Copilot, run `validate` explicitly.
 - **A planner agent**, `dvac-data-planner`, that runs the loop with a user confirmation gate.
@@ -99,6 +99,10 @@ A row in the file that the filter doesn't select is updated, but removing it fro
 ## Common issue: stale plan
 
 `apply` recomputes the plan and aborts if it differs from the saved file (model, server rows, steps, organization). Re-run `plan` and confirm again.
+
+## Common issue: failed or unanswered batch
+
+A failed batch writes nothing; `apply` halves it until the failing row is alone and reports that row's own error, then stops. When Dataverse gives no answer (timeout, gateway error), the batch may or may not be written: `apply` stops with `outcome unknown` — never re-apply that plan, re-run `plan`. See [`references/plan-apply.md`](references/plan-apply.md#batches).
 
 ## Anti-patterns (DO NOT DO)
 

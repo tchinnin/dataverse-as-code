@@ -42,11 +42,13 @@ Exit code: `0` no change, `2` changes pending, `1` error or blocked items.
 
 | Action | When | Web API |
 |---|---|---|
-| `+ create` | A row of the model has no server row with its key | `POST <set>` with the row's columns; then the lookups to rows created by this plan |
-| `~ update` | A listed column differs | `PATCH <set>(<id>)` with the changed columns only (`If-Match: *`); `DELETE …/<nav>/$ref` to clear a lookup |
-| `~ activate` | `deletion: deactivate` and a row of the model is inactive | `PATCH` `statecode`/`statuscode` to the active state |
-| `- deactivate` | `deletion: deactivate`, an active row inside `delete_filter`, not in the model | `PATCH` `statecode`/`statuscode` to the inactive state's default status |
-| `- delete` | `deletion: delete`, a row inside `delete_filter`, not in the model | `DELETE <set>(<id>)` |
+| `+ create` | A row of the model has no server row with its key | `CreateMultiple` with the row's columns (or `POST <set>`); then the lookups to rows created by this plan (`UpdateMultiple`) |
+| `~ update` | A listed column differs | `UpdateMultiple` with the changed columns only (or `PATCH <set>(<id>)`, `If-Match: *`); `DELETE …/<nav>/$ref` to clear a lookup |
+| `~ activate` | `deletion: deactivate` and a row of the model is inactive | `UpdateMultiple` (or `PATCH`) `statecode`/`statuscode` to the active state |
+| `- deactivate` | `deletion: deactivate`, an active row inside `delete_filter`, not in the model | `UpdateMultiple` (or `PATCH`) `statecode`/`statuscode` to the inactive state's default status |
+| `- delete` | `deletion: delete`, a row inside `delete_filter`, not in the model | `DELETE <set>(<id>)`, row by row |
+
+The single-row form is used when the table doesn't support the bulk message, and for the row isolated by a failed batch — see [Batches](#batches).
 
 Values compare by type: text ignores `null` vs empty, numbers compare numerically, multi-select choices ignore order, date-only values compare on the date, date-times compare in UTC.
 
@@ -58,6 +60,27 @@ Values compare by type: text ignores `null` vs empty, numbers compare numericall
 4. Deletes, tables that reference others first.
 
 Apply stops at the first failure. Earlier writes stay. Fix the cause, re-plan and apply the new plan.
+
+## Batches
+
+Within each step of the apply order, the rows of one table and one operation are sent together. Batching is an apply detail: the plan file and its contract don't change.
+
+- **Bulk messages.** Creates go through `CreateMultiple`; updates, activations, deactivations and lookups to created rows go through `UpdateMultiple` — `POST <set>/Microsoft.Dynamics.CRM.<message>` with `Targets`, each carrying its `@odata.type`. The bypass headers apply as for single rows, and plug-ins registered on `Create`/`Update` still run (Dataverse merges the pipelines).
+- **Batch size.** `--batch-size <n>`, default 100 rows per request (Microsoft suggests 100 to 1,000, fewer when plug-ins run on the table). `--batch-size 1` sends every row on its own request.
+- **Support.** Before the first batch of a table, `apply` reads the table type and the message filters (`sdkmessagefilters`). Tables without the message, elastic tables and virtual tables go row by row — elastic tables aren't transactional, so a failed batch could be partly written.
+- **Row by row anyway.** Deletes (`DeleteMultiple` exists only for elastic tables) and lookup removals (`DELETE …/$ref`), and a group of a single row.
+
+### Failed batch: halving
+
+On a standard table a bulk request is one transaction: when Dataverse answers with an error (4xx or 500), nothing in the batch was written. `apply` then sends each half of the batch again, and halves again what fails, until the failing row is alone. That row is sent on its own request (`POST`/`PATCH`), and its error is the one reported. Then apply stops, as for any failure; rows after it are not sent.
+
+One error in 100 rows costs about 14 requests instead of 100. When every row passes on its own but no batch does (the message doesn't accept something in the payload), `apply` stops using that message for the table for the rest of the run.
+
+A synchronous plug-in that calls an external service runs once per attempt: a row in a halved batch may trigger that call more than once. Dataverse rolls back its own writes, not the external call.
+
+### No answer: outcome unknown
+
+On a timeout, a dropped connection, a gateway error (502, 503, 504) or exhausted throttling retries, Dataverse may or may not have written the batch. `apply` doesn't halve or retry it: it stops with `? … outcome unknown`. Don't re-apply the same plan. Re-run `plan` — it reads the real state, so rows already written drop out — and apply the new plan.
 
 ## Blocked items
 

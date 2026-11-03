@@ -15,7 +15,8 @@ and reconciles them with the environment of one stage, Terraform style:
     validate <path> [--stage <s>]   offline structural + semantic validation
     plan <data-dir> --stage <s>     read-only diff: create / update / (de)activate / delete / blocked
     apply <data-dir> --stage <s> --plan-file <f> [--confirm-url <url>] [--confirm-deletes <n>]
-                                    execute exactly the saved plan (aborts if stale)
+          [--batch-size <n>]        execute exactly the saved plan (aborts if stale), in
+                                    CreateMultiple/UpdateMultiple batches where supported
 
 Rows are identified by an alternate key, never by GUID, and the model files are
 never written. Rows absent from the files are left alone unless the table declares
@@ -112,6 +113,12 @@ TARGET_NAME = "@Microsoft.Dynamics.CRM.lookuplogicalname"
 
 # activate runs first (some tables refuse updates on inactive rows), deletes last.
 PHASE = {"activate": 0, "create": 1, "update": 1, "deactivate": 2, "delete": 3}
+
+# Bulk writes at apply. Microsoft suggests 100 to 1,000 rows per request, fewer with plug-ins.
+BATCH_SIZE = 100
+BULK_MESSAGES = {"create": "CreateMultiple", "update": "UpdateMultiple", "activate": "UpdateMultiple",
+                 "deactivate": "UpdateMultiple", "link": "UpdateMultiple"}
+BULK_TABLE_TYPES = {"Standard", "Activity"}  # transactional: a failed request writes nothing
 
 
 class GuardError(Exception):
@@ -1348,14 +1355,49 @@ def cmd_doctor(args):
 # --------------------------------------------------------------------------- #
 # Apply
 # --------------------------------------------------------------------------- #
+class RowFailure(Exception):
+    """One row failed on its own request: the cause is that row."""
+
+    def __init__(self, op, action, error, unknown=False):
+        super().__init__(str(error))
+        self.op, self.action, self.unknown = op, action, unknown
+
+
+class UnknownOutcome(Exception):
+    """A bulk request got no usable answer: Dataverse may or may not have written it."""
+
+    def __init__(self, op, table, actions, error):
+        super().__init__(str(error))
+        self.op, self.table, self.actions = op, table, actions
+
+
+def splittable(error):
+    """A bulk error that Dataverse answered and rolled back (standard tables are
+    transactional), so its halves can be sent again without writing a row twice.
+    Gateway errors (502/503/504) and exhausted retries leave the outcome unknown."""
+    return 400 <= error.status < 500 or error.status == 500
+
+
 class Applier:
-    def __init__(self, api, plan):
+    """Runs the plan's actions. Creates, updates, (de)activations and links go through
+    CreateMultiple / UpdateMultiple in batches when the table supports them; a failed
+    batch is split in two and retried until the failing row is alone, then that row is
+    sent on its own request, which reports the real error. Deletes and lookup removals
+    always go row by row."""
+
+    def __init__(self, api, plan, batch_size=BATCH_SIZE):
         self.api = api
         self.headers = {b["table"]: bypass_headers(b["modes"]) for b in plan["bypass"]}
         self.created = {}
+        self.batch_size = max(1, int(batch_size))
+        self.tables = {}      # table -> {"pk", "messages"}
+        self.disabled = set()  # (table, message) found unusable during this apply
+        self.requests = 0
+        self.bulk_ok = 0
 
     def _send(self, a, method, path, body=None, extra=None, return_id=False):
         headers = {**self.headers.get(a["table"], {}), **(extra or {})}
+        self.requests += 1
         return self.api.request(method, path, body, headers=headers, return_id=return_id)
 
     def create(self, a):
@@ -1386,6 +1428,126 @@ class Applier:
         return ([(a["op"], a) for a in writes] + [("link", a) for a in writes if a.get("links")]
                 + [(a["op"], a) for a in actions if PHASE[a["op"]] > 1])
 
+    @staticmethod
+    def groups(steps):
+        """[(op, table, actions)]: the consecutive steps of one table in one stage of the
+        apply order, one group per operation. Rows of a table are independent within a
+        stage (references to rows created meanwhile are linked in a later stage)."""
+        out, seg, seg_key = [], {}, None
+        for op, a in steps:
+            key = ("link" if op == "link" else PHASE[op], a["table"])
+            if key != seg_key:
+                seg_key, seg = key, {}
+            if op not in seg:
+                seg[op] = (op, a["table"], [])
+                out.append(seg[op])
+            seg[op][2].append(a)
+        return out
+
+    # -- bulk ------------------------------------------------------------------ #
+    def _table(self, table):
+        """Primary key and bulk messages of a table. Elastic and virtual tables are
+        not transactional, so a failed batch could be partly written: never bulk them."""
+        if table not in self.tables:
+            try:
+                d = self.api.get(f"EntityDefinitions(LogicalName='{table}')?$select=PrimaryIdAttribute,TableType")
+                flt = (f"primaryobjecttypecode eq '{table}' and (sdkmessageid/name eq 'CreateMultiple' "
+                       f"or sdkmessageid/name eq 'UpdateMultiple')")
+                found = self.api.get(_q(self.api, "sdkmessagefilters", select="sdkmessagefilterid", filter=flt,
+                                        expand="sdkmessageid($select=name)"))
+                names = {(m.get("sdkmessageid") or {}).get("name") for m in found.get("value", [])}
+                ok = (d.get("TableType") or "Standard") in BULK_TABLE_TYPES
+                self.tables[table] = {"pk": d["PrimaryIdAttribute"], "messages": names if ok else set()}
+            except (ApiError, KeyError):
+                self.tables[table] = {"pk": None, "messages": set()}
+        return self.tables[table]
+
+    def _bulk_on(self, op, table):
+        msg = BULK_MESSAGES.get(op)
+        return (self.batch_size > 1 and msg is not None and (table, msg) not in self.disabled
+                and msg in self._table(table)["messages"])
+
+    def _target(self, op, a, pk):
+        target = {"@odata.type": f"Microsoft.Dynamics.CRM.{a['table']}"}
+        if op == "create":
+            return {**target, **a["body"]}
+        rid = a.get("id") or self.created[(a["table"], a["row"])]
+        body = ({f"{nav}@odata.bind": path for nav, path in a["links"].items()} if op == "link" else a["body"])
+        return {**target, pk: rid, **body}
+
+    def _bulk(self, op, table, items):
+        msg = BULK_MESSAGES[op]
+        pk = self._table(table)["pk"]
+        body = {"Targets": [self._target(op, a, pk) for a in items]}
+        try:
+            res = self._send(items[0], "POST", f"{items[0]['set']}/Microsoft.Dynamics.CRM.{msg}", body)
+        except ApiError as e:
+            if splittable(e):
+                raise
+            raise UnknownOutcome(op, table, items, e) from None
+        except OSError as e:  # timeout, connection reset: no answer
+            raise UnknownOutcome(op, table, items, f"no response ({e})") from None
+        if op == "create":
+            ids = (res or {}).get("Ids") or []
+            if len(ids) != len(items):
+                raise UnknownOutcome(op, table, items, f"CreateMultiple returned {len(ids)} id(s) for {len(items)} row(s)")
+            for a, rid in zip(items, ids):
+                self.created[(a["table"], a["row"])] = rid
+        self.bulk_ok += 1
+
+    def _unit(self, op, a, report):
+        try:
+            getattr(self, op)(a)
+        except (ApiError, KeyError) as e:
+            raise RowFailure(op, a, e) from None
+        except OSError as e:
+            raise RowFailure(op, a, f"no response ({e}) — Dataverse may or may not have written it", True) from None
+        report(op, a)
+
+    def _after_bulk(self, op, a, report):
+        """What a bulk update can't carry: lookups cleared by removing the reference."""
+        for nav in (a.get("unset") or []) if op == "update" else []:
+            try:
+                self._send(a, "DELETE", f"{a['set']}({a['id']})/{nav}/$ref")
+            except ApiError as e:
+                raise RowFailure(op, a, e) from None
+        report(op, a)
+
+    def _bisect(self, op, table, items, report):
+        if len(items) == 1 or not self._bulk_on(op, table):
+            for a in items:
+                self._unit(op, a, report)
+            return
+        try:
+            self._bulk(op, table, items)
+        except ApiError:
+            before = self.bulk_ok
+            mid = len(items) // 2
+            self._bisect(op, table, items[:mid], report)
+            self._bisect(op, table, items[mid:], report)
+            if self.bulk_ok == before:
+                # Every row passed on its own but no batch did: the message doesn't work
+                # for this table (unsupported column in bulk…). Stop trying it.
+                self.disabled.add((table, BULK_MESSAGES[op]))
+            return
+        for a in items:
+            self._after_bulk(op, a, report)
+
+    def run(self, steps, report):
+        """Apply every step in order; report(op, action) after each written row.
+        Raises RowFailure or UnknownOutcome at the first failure."""
+        for op, table, items in self.groups(steps):
+            bulk = [a for a in items if op != "update" or a["body"]]
+            if len(bulk) < 2 or not self._bulk_on(op, table):
+                for a in items:
+                    self._unit(op, a, report)
+                continue
+            for a in items:
+                if op == "update" and not a["body"]:
+                    self._unit(op, a, report)
+            for i in range(0, len(bulk), self.batch_size):
+                self._bisect(op, table, bulk[i:i + self.batch_size], report)
+
 
 def cmd_apply(args):
     saved = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
@@ -1411,22 +1573,33 @@ def cmd_apply(args):
         print(red(f"REFUSED: {err}"), file=sys.stderr)
         return 1
 
-    applier = Applier(api, fresh)
+    applier = Applier(api, fresh, args.batch_size)
     steps = applier.steps(fresh["actions"])
-    done, failure = 0, None
+    done = 0
     print(bold(f"Applying {len(steps)} write(s) to {fresh['env_url']} (stage {fresh['stage']})"))
-    for op, a in steps:
-        try:
-            getattr(applier, op)(a)
-            done += 1
-            print(f"  {green('✓')} {op:<10} {a['table']}[{a['row']}]", flush=True)
-        except (ApiError, KeyError) as e:
-            failure = e
-            print(f"  {red('✗')} {op:<10} {a['table']}[{a['row']}]\n      {e}", flush=True)
-            break
-    print(f"\n{done}/{len(steps)} write(s) applied.")
+
+    def report(op, a):
+        nonlocal done
+        done += 1
+        print(f"  {green('✓')} {op:<10} {a['table']}[{a['row']}]", flush=True)
+
+    failure = None
+    try:
+        applier.run(steps, report)
+    except RowFailure as e:
+        failure = e
+        print(f"  {red('✗')} {e.op:<10} {e.action['table']}[{e.action['row']}]\n      {e}", flush=True)
+    except UnknownOutcome as e:
+        failure = e
+        print(f"  {red('?')} {e.op:<10} {e.table}: batch of {len(e.actions)} row(s) — outcome unknown\n      {e}",
+              flush=True)
+    print(f"\n{done}/{len(steps)} write(s) applied in {applier.requests} request(s).")
     if failure:
-        print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
+        if isinstance(failure, UnknownOutcome) or failure.unknown:
+            print(red("Dataverse gave no usable answer: the last write may or may not be applied. "
+                      "Don't re-apply this plan — re-run plan, which reads the real state, then apply the new plan."))
+        else:
+            print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
         return 1
     _, _, after = compute_plan(args.data, args.stage, env_inputs(args))
     if after["actions"] or after["blocked"]:
@@ -1459,6 +1632,8 @@ def main(argv=None):
     p.add_argument("--plan-file", required=True)
     p.add_argument("--confirm-url", help="outside dev: the environment URL, typed by the user")
     p.add_argument("--confirm-deletes", type=int, help="outside dev: the number of deletes, typed by the user")
+    p.add_argument("--batch-size", type=int, default=BATCH_SIZE,
+                   help=f"rows per CreateMultiple/UpdateMultiple request (default {BATCH_SIZE}; 1 = row by row)")
     add_env_args(p)
     args = ap.parse_args(argv)
     try:
