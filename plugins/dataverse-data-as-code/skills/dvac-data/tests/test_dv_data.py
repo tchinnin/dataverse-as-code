@@ -559,6 +559,164 @@ class TestApplier(unittest.TestCase):
         ])
 
 
+class BulkApi:
+    """Fake Web API for apply: answers the bulk support queries, records every write.
+    fail(method, path, body) returns an ApiError (or OSError) to raise, or None."""
+    base = "https://x/api/data/v9.2"
+
+    def __init__(self, messages=("CreateMultiple", "UpdateMultiple"), table_type="Standard", fail=None):
+        self.messages, self.table_type, self.fail = messages, table_type, fail or (lambda *_: None)
+        self.calls = []
+        self.n = 0
+
+    def get(self, path):
+        if path.startswith("EntityDefinitions"):
+            logical = path.split("'")[1]
+            return {"PrimaryIdAttribute": f"{logical}id", "TableType": self.table_type}
+        return {"value": [{"sdkmessageid": {"name": m}} for m in self.messages]}
+
+    def request(self, method, path, body=None, headers=None, return_id=False):
+        err = self.fail(method, path, body)
+        self.calls.append((method, path.split("/Microsoft.Dynamics.CRM.")[-1] if "Multiple" in path else path,
+                           [t.get("prfx_code") or t.get("prfx_parameterid") for t in body["Targets"]]
+                           if body and "Targets" in body else body))
+        if err:
+            raise err
+        if path.endswith("CreateMultiple"):
+            ids = []
+            for _t in body["Targets"]:
+                self.n += 1
+                ids.append(f"id{self.n}")
+            return {"Ids": ids}
+        if return_id:
+            self.n += 1
+            return f"id{self.n}"
+        return {}
+
+
+def creates(*codes, links=None):
+    return [{"op": "create", "table": "prfx_parameter", "set": "prfx_parameters", "row": c,
+             "body": {"prfx_code": c}, "links": dict(links or {})} for c in codes]
+
+
+def bad_row(code, status=400):
+    """Fail every request whose body holds the row `code`."""
+    def fail(_method, _path, body):
+        rows = [t.get("prfx_code") for t in body["Targets"]] if body and "Targets" in body else [(body or {}).get("prfx_code")]
+        return dv.ApiError(status, "0x80040237", f"duplicate {code}", "x") if code in rows else None
+    return fail
+
+
+def apply_all(api, actions, batch_size=100):
+    applier = dv.Applier(api, {"bypass": [], "actions": actions}, batch_size)
+    done = []
+    applier.run(applier.steps(actions), lambda op, a: done.append((op, a["row"])))
+    return applier, done
+
+
+class TestBulkApply(unittest.TestCase):
+    def test_creates_go_in_one_create_multiple_then_links_in_one_update_multiple(self):
+        api = BulkApi()
+        acts = creates("A", "B", "C", links={"prfx_RegionId": "/prfx_regions(prfx_code='EU')"})
+        applier, done = apply_all(api, acts)
+        self.assertEqual(api.calls[0], ("POST", "CreateMultiple", ["A", "B", "C"]))
+        method, msg, ids = api.calls[1]
+        self.assertEqual((method, msg, ids), ("POST", "UpdateMultiple", ["id1", "id2", "id3"]))
+        self.assertEqual(len(api.calls), 2)
+        self.assertEqual(applier.requests, 2)
+        self.assertEqual([r for _, r in done], ["A", "B", "C", "A", "B", "C"])
+
+    def test_targets_carry_the_odata_type_and_the_primary_key(self):
+        api = BulkApi()
+        applier = dv.Applier(api, {"bypass": [{"table": "prfx_parameter", "modes": ["sync"]}], "actions": []})
+        seen = []
+        api.request = lambda m, p, body=None, headers=None, return_id=False: seen.append((p, body, headers)) or {}
+        acts = [{"op": "update", "table": "prfx_parameter", "set": "prfx_parameters", "row": r, "id": f"g{r}",
+                 "body": {"prfx_value": r}, "links": {}, "unset": []} for r in ("A", "B")]
+        applier.run(applier.steps(acts), lambda *_: None)
+        path, body, headers = seen[0]
+        self.assertEqual(path, "prfx_parameters/Microsoft.Dynamics.CRM.UpdateMultiple")
+        self.assertEqual(body["Targets"][0], {"@odata.type": "Microsoft.Dynamics.CRM.prfx_parameter",
+                                              "prfx_parameterid": "gA", "prfx_value": "A"})
+        self.assertEqual(headers, {"MSCRM.BypassBusinessLogicExecution": "CustomSync"})
+
+    def test_a_failed_batch_is_halved_until_the_failing_row_is_alone(self):
+        api = BulkApi(fail=bad_row("C"))
+        with self.assertRaises(dv.RowFailure) as ctx:
+            apply_all(api, creates("A", "B", "C", "D"))
+        self.assertEqual(ctx.exception.action["row"], "C")
+        self.assertFalse(ctx.exception.unknown)
+        self.assertEqual(api.calls, [
+            ("POST", "CreateMultiple", ["A", "B", "C", "D"]),   # rolled back
+            ("POST", "CreateMultiple", ["A", "B"]),             # written
+            ("POST", "CreateMultiple", ["C", "D"]),             # rolled back
+            ("POST", "prfx_parameters", {"prfx_code": "C"}),    # alone: the real error, then stop
+        ])
+
+    def test_rows_after_the_failing_one_are_not_sent(self):
+        api = BulkApi(fail=bad_row("A"))
+        with self.assertRaises(dv.RowFailure):
+            apply_all(api, creates("A", "B", "C", "D"))
+        self.assertNotIn(("POST", "prfx_parameters", {"prfx_code": "B"}), api.calls)
+
+    def test_batches_follow_the_batch_size(self):
+        api = BulkApi()
+        apply_all(api, creates(*"ABCDE"), batch_size=2)
+        self.assertEqual(api.calls, [("POST", "CreateMultiple", ["A", "B"]), ("POST", "CreateMultiple", ["C", "D"]),
+                                     ("POST", "prfx_parameters", {"prfx_code": "E"})])
+
+    def test_batch_size_one_is_row_by_row(self):
+        api = BulkApi()
+        apply_all(api, creates("A", "B"), batch_size=1)
+        self.assertEqual([c[1] for c in api.calls], ["prfx_parameters", "prfx_parameters"])
+
+    def test_unsupported_or_elastic_tables_go_row_by_row(self):
+        for api in (BulkApi(messages=()), BulkApi(table_type="Elastic")):
+            apply_all(api, creates("A", "B"))
+            self.assertEqual([c[1] for c in api.calls], ["prfx_parameters", "prfx_parameters"])
+
+    def test_a_message_that_never_works_in_bulk_is_dropped(self):
+        api = BulkApi(fail=lambda m, p, b: dv.ApiError(400, None, "bulk refused", p) if "Multiple" in p else None)
+        _applier, done = apply_all(api, creates(*"ABCDEF"), batch_size=2)
+        self.assertEqual(len(done), 6)
+        self.assertEqual(sum(1 for c in api.calls if c[1] == "CreateMultiple"), 1)
+
+    def test_no_answer_stops_without_splitting(self):
+        for err in (OSError("timed out"), dv.ApiError(504, None, "gateway timeout", "x"),
+                    dv.ApiError(0, None, "retries exhausted", "x")):
+            api = BulkApi(fail=lambda m, p, b, err=err: err if "Multiple" in p else None)
+            with self.assertRaises(dv.UnknownOutcome) as ctx:
+                apply_all(api, creates("A", "B", "C"))
+            self.assertEqual(len(ctx.exception.actions), 3)
+            self.assertEqual(len(api.calls), 1)
+
+    def test_lookup_removals_and_deletes_stay_row_by_row(self):
+        api = BulkApi()
+        acts = [{"op": "update", "table": "prfx_parameter", "set": "prfx_parameters", "row": r, "id": f"g{r}",
+                 "body": {"prfx_value": r} if r != "C" else {}, "links": {}, "unset": ["prfx_RegionId"]}
+                for r in ("A", "B", "C")]
+        acts += [{"op": "delete", "table": "prfx_region", "set": "prfx_regions", "row": r, "id": f"r{r}"}
+                 for r in ("X", "Y")]
+        _applier, done = apply_all(api, acts)
+        self.assertEqual(api.calls, [
+            ("DELETE", "prfx_parameters(gC)/prfx_RegionId/$ref", None),
+            ("POST", "UpdateMultiple", ["gA", "gB"]),
+            ("DELETE", "prfx_parameters(gA)/prfx_RegionId/$ref", None),
+            ("DELETE", "prfx_parameters(gB)/prfx_RegionId/$ref", None),
+            ("DELETE", "prfx_regions(rX)", None),
+            ("DELETE", "prfx_regions(rY)", None),
+        ])
+        self.assertEqual(len(done), 5)
+
+    def test_groups_keep_the_apply_order(self):
+        steps = [("activate", {"table": "t1"}), ("create", {"table": "t1"}), ("update", {"table": "t1"}),
+                 ("create", {"table": "t1"}), ("create", {"table": "t2"}), ("link", {"table": "t1"}),
+                 ("delete", {"table": "t2"})]
+        got = [(op, t, len(items)) for op, t, items in dv.Applier.groups(steps)]
+        self.assertEqual(got, [("activate", "t1", 1), ("create", "t1", 2), ("update", "t1", 1),
+                               ("create", "t2", 1), ("link", "t1", 1), ("delete", "t2", 1)])
+
+
 class TestSharedBlock(unittest.TestCase):
     """The Web API client is copied from dv_metadata.py (plugins are installed
     independently, so no cross-plugin import). Detect drift. The guard is not shared:
