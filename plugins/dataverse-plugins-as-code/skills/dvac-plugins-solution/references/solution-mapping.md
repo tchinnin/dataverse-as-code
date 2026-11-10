@@ -1,6 +1,6 @@
 # Solution → plug-in file mapping
 
-`dv_plugin_import.py` reads the SolutionPackager layout produced by `pac solution unpack`. This page lists what it reads and how each element becomes a `.dv.plugin.yaml` field. The format itself is described in the `dvac-plugins` skill (`references/format.md`).
+`dv_plugin_solution.py` reads the SolutionPackager XML layout produced by `pac solution unpack` — read only, it never writes in the unpacked folder. This page lists what it reads and how each element becomes a `.dv.plugin.yaml` field, for `import` and `compare` alike. The format itself is described in the `dvac-plugins` skill (`references/format.md`).
 
 ## Files read
 
@@ -80,3 +80,13 @@ Request parameters and response properties: `uniquename` → key, `type` (0–12
 ## Merging
 
 Several solutions are read together. A step or Custom API present in two solutions is an error.
+
+## Compare
+
+`compare` resolves the solution's steps and Custom APIs exactly as `import` does, then compares them with the files, normalised as `plan` normalises them:
+
+- **Units** (package or assembly) by name, **steps** by name (the Plugin Registration Tool default when the file has none), **images** by name, **Custom APIs** and their parameters by unique name.
+- **`~` differs** — step `plugin`, `message`, `table`, `stage`, `mode`, `rank`, `filtering_attributes` and the declared `configuration`, `description`, `async_auto_delete`; image `alias`, `type`, `attributes`, `message_property`; Custom API `binding`, `bound_table`, `is_function`, `allowed_steps`, `workflow_enabled`, `display_name`, `is_private` and the declared `name`, `description`, `execute_privilege`, `plugin`; parameter `type`, `table`, `optional` and the declared `name`, `display_name`, `description`. Defaults apply as in the format (`mode: sync`, `rank: 1`…).
+- **`·` not declared** — a step's `description`, `configuration` or `async_auto_delete`, a Custom API's `description` or `execute_privilege`, held by the solution and left out of the file.
+- **`!`** — what `import` would skip (class unknown, unit unknown); such a step is not reported as `-`.
+- Not compared: the package or assembly `id`, the build output path, `enabled`, and a plug-in class the solution knows by export key only.

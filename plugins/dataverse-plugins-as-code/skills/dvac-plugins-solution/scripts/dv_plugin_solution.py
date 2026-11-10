@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
-dv_plugin_import.py — align the plug-in registrations with unpacked solutions
-=============================================================================
+dv_plugin_solution.py — the plug-in registrations and unpacked solutions
+========================================================================
 
 Reads one or more solutions unpacked in the repo (``pac solution unpack`` /
-SolutionPackager layout: ``pluginpackages/``, ``PluginAssemblies/``,
-``SdkMessageProcessingSteps/``, ``customapis/``) and regenerates the
-``*.dv.plugin.yaml`` files of the dvac-plugins skill from them::
+SolutionPackager XML layout: ``pluginpackages/``, ``PluginAssemblies/``,
+``SdkMessageProcessingSteps/``, ``customapis/``) and, against the
+``*.dv.plugin.yaml`` files of the dvac-plugins skill::
 
-    solution <unpacked-dir>... [--root <dir>] [--write]
+    import  <unpacked-dir>... [--root <dir>] [--projects-dir <dir>] [--write]
+    compare <unpacked-dir>... [--root <dir>]
 
-Without ``--write`` nothing is written: the tool prints what would change —
-``+`` new file, ``~`` changed file (unified diff), ``=`` unchanged — then the
-model entries the solutions don't hold (kept) and what could not be imported
-(skipped). ``--write`` writes the new and changed files.
+``import`` regenerates the files from the solutions. Without ``--write``
+nothing is written: it prints what would change — ``+`` new file, ``~``
+changed file (unified diff), ``=`` unchanged — then the entries the solutions
+don't hold (kept) and what could not be imported (skipped). ``--write`` writes
+the new and changed files.
 
 The model is never reduced: steps and Custom APIs that are only in a file are
 kept, so a later ``apply`` cannot delete them by surprise. Values the solution
@@ -23,17 +25,24 @@ solution only holds its export key. A file whose content does not change is
 not rewritten, so its comments survive. The result is validated with the
 dvac-plugins validator before anything is written.
 
+``compare`` writes nothing. It lists what is only in the solution (+), only in
+the files (-), what differs field by field (~), and, for information, the
+values the solution holds that the files don't declare (·) and what cannot be
+compared (!). Fields are compared as ``plan`` compares them with the server.
+
 A solution identifies plug-in types of a package by an export key, not by class
 name. The class comes from the step name when it follows the Plugin
 Registration Tool format ("<class>: <message> of <table>"), from another step
 of the same type, or from the existing file.
 
+The unpacked solutions are read only: no subcommand writes in them, a write
+target inside one is refused, and a *.dv.plugin.yaml inside one is ignored.
 Offline: reads files only, never the environment.
 
 Exit codes:
-    0  nothing to change, or --write succeeded
-    1  error, or the result would be invalid
-    2  changes pending (run again with --write)
+    0  done (import: nothing to change or --write succeeded; compare: computed)
+    1  error, refused, or the imported files would be invalid
+    2  --detailed-exitcode: files would change (import), or drift (compare)
 
 Do not edit this script per project — edit the model files.
 """
@@ -188,10 +197,13 @@ def read_solution(sol_dir: Path):
 # --------------------------------------------------------------------------- #
 # Existing model
 # --------------------------------------------------------------------------- #
-def existing_units(root: Path):
-    """{lower unit name: {file, text, data, classes}} for every *.dv.plugin.yaml below root."""
+def existing_units(root: Path, sol_dirs=()):
+    """{lower unit name: {file, text, data, classes}} for every *.dv.plugin.yaml below root,
+    except those inside an unpacked solution (read only, never part of the model)."""
     out = {}
     for f in dvp.find_files(root):
+        if solution_folder_of(f, sol_dirs) is not None:
+            continue
         data = dvp.load_yaml(f)
         if not isinstance(data, dict) or not ("package" in data or "assembly" in data):
             continue
@@ -463,7 +475,7 @@ def build(sol_dirs, root: Path, projects_dir=None):
     dvp._require_yaml()
     sols = [read_solution(Path(d)) for d in sol_dirs]
     merge_check(sols)
-    existing = existing_units(root)
+    existing = existing_units(root, sol_dirs)
     al = Aligner(sols, existing, projects_dir, root)
     if not al.units:
         raise ImportError_("no plug-in package or assembly in the solution(s)")
@@ -541,12 +553,43 @@ def report(changes, al, root, show_diff=True):
     return pending
 
 
-def cmd_solution(args):
-    root = Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd())
+def solution_folder_of(path, sol_dirs):
+    """The input solution folder (one holding Other/Solution.xml) that holds ``path`` or is it."""
+    p = Path(path).resolve()
+    for d in sol_dirs:
+        d = Path(d).resolve()
+        if (d / "Other" / "Solution.xml").is_file() and (p == d or d in p.parents):
+            return d
+    return None
+
+
+def refuse_inside_solution(paths, sol_dirs):
+    """Unpacked solutions are read only: refuse any write target inside one. True when refused."""
+    for path in paths:
+        folder = solution_folder_of(path, sol_dirs)
+        if folder is not None:
+            dvp.print_status("refused", reason=f"{path} is inside the unpacked solution {folder} — "
+                                                "an unpacked solution is read only",
+                             fix="create the plug-in files outside every unpacked solution "
+                                 "(next to the project's .csproj, or with --projects-dir)")
+            return True
+    return False
+
+
+def resolve_root(args):
+    return Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd())
+
+
+def cmd_import(args):
+    root = resolve_root(args)
+    if args.projects_dir and refuse_inside_solution([root / args.projects_dir], args.solutions):
+        return 1
     try:
         changes, al = build(args.solutions, root, args.projects_dir)
     except ImportError_ as e:
         dvp.print_error(e)
+        return 1
+    if refuse_inside_solution([c[0] for c in changes if c[1] != c[2]], args.solutions):
         return 1
     pending = report(changes, al, root, show_diff=not args.no_diff)
     result = validate_result(changes)
@@ -566,7 +609,7 @@ def cmd_solution(args):
         return 0
     if not args.write:
         print(dvp.bold(f"\n{pending} file(s) to write — review, then run again with --write."))
-        dvp.print_status("changes-pending", next_cmd=write_command(args))
+        dvp.print_status("changes-pending", next_cmd=import_command(args, write=True))
         return 2 if args.detailed_exitcode else 0
     for path, old, new in changes:
         if old != new:
@@ -578,28 +621,200 @@ def cmd_solution(args):
     return 0
 
 
-def write_command(args):
-    """The same import with --write, every path absolute."""
-    return dvp.command_line(__file__, "solution", *[Path(d).resolve() for d in args.solutions],
-                            "--root", Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd()),
-                            *(["--projects-dir", args.projects_dir] if args.projects_dir else []), "--write")
+def import_command(args, write):
+    """The import of the same solutions, every path absolute."""
+    return dvp.command_line(__file__, "import", *[Path(d).resolve() for d in args.solutions],
+                            "--root", resolve_root(args),
+                            *(["--projects-dir", args.projects_dir] if getattr(args, "projects_dir", None) else []),
+                            *(["--write"] if write else []))
+
+
+# --------------------------------------------------------------------------- #
+# Compare (writes nothing)
+# --------------------------------------------------------------------------- #
+class Comparison:
+    """Differences between the plug-in files and the solutions, in five sections."""
+
+    def __init__(self):
+        self.only_solution = []   # "+"
+        self.only_model = []      # "-"
+        self.differs = []         # "~"
+        self.undeclared = []      # "·" informational
+        self.skipped = []         # "!" informational
+
+    @property
+    def drift(self):
+        return len(self.only_solution) + len(self.only_model) + len(self.differs)
+
+    def fields(self, where, want, have, fields):
+        for f in fields:
+            if f not in want:
+                continue
+            w, h = want[f], have.get(f)
+            if f == "message":
+                w, h = (w or "").lower(), (h or "").lower()
+            if w != h:
+                self.differs.append(f"{where}.{f}: model={want[f]!r}  solution={have.get(f)!r}")
+
+
+STEP_FIELDS = ("plugin", "message", "table", "stage", "mode", "rank", "filtering_attributes",
+               *dvp.STEP_FIELD_TO_API)
+IMAGE_FIELDS = ("alias", "type", "attributes", "message_property")
+API_FIELDS = ("binding", "bound_table", "is_function", "allowed_steps", "workflow_enabled", "display_name",
+              "is_private", "name", "description", "execute_privilege", "plugin")
+NOT_CARRIED = "the solution does not carry it"
+
+
+def compare_steps(cmp, unit_name, model_steps, sol_steps, skipped):
+    want_steps = {s["name"].lower(): s for s in (dvp.desired_step(s) for s in model_steps)}
+    for key, want in want_steps.items():
+        have = sol_steps.get(key)
+        where = f"{unit_name} / step {want['name']}"
+        if have is None:
+            if key not in skipped:
+                cmp.only_model.append(f"step {want['name']} ({unit_name})")
+            continue
+        cmp.fields(where, want, have, [f for f in STEP_FIELDS if not (f == "plugin" and not have.get("plugin"))])
+        for f in dvp.STEP_FIELD_TO_API:
+            if f not in want and have.get(f) and not (f == "async_auto_delete" and have.get("mode") != "async"):
+                cmp.undeclared.append(f"{where}.{f} = {have[f]!r}")
+        for ikey, wi in want["images"].items():
+            hi = have["images"].get(ikey)
+            if hi is None:
+                cmp.only_model.append(f"image {wi['name']} of step {want['name']}")
+            else:
+                cmp.fields(f"{where} / image {wi['name']}", wi, dict(hi, attributes=sorted(hi["attributes"])),
+                           IMAGE_FIELDS)
+        for ikey in sorted(set(have["images"]) - set(want["images"])):
+            cmp.only_solution.append(f"image {have['images'][ikey]['name']} of step {want['name']}")
+    for key in sorted(set(sol_steps) - set(want_steps)):
+        s = sol_steps[key]
+        cmp.only_solution.append(f"step {s['name']} ({unit_name}: {s['message']}"
+                                 + (f" of {s['table']}" if s["table"] else "") + f", {s['stage']})")
+
+
+def compare_apis(cmp, model_apis, sol_apis, skipped):
+    sol = {k.lower(): v for k, v in sol_apis.items()}
+    want_apis = {k.lower(): dvp.desired_api(k, v or {}) for k, v in (model_apis or {}).items()}
+    for key, want in want_apis.items():
+        have = sol.get(key)
+        where = f"custom API {want['uniquename']}"
+        if have is None:
+            if f"custom api {key}" not in skipped:
+                cmp.only_model.append(where)
+            continue
+        cmp.fields(where, want, have, [f for f in API_FIELDS if not (f == "plugin" and not have.get("plugin"))])
+        for f in ("description", "execute_privilege"):
+            if f not in want and have.get(f):
+                cmp.undeclared.append(f"{where}.{f} = {have[f]!r}")
+        for section in ("request", "response"):
+            fields = ("type", "table", "optional", *dvp.PARAM_FIELD_TO_API) if section == "request" else \
+                ("type", "table", *dvp.PARAM_FIELD_TO_API)
+            for pkey, pw in want[section].items():
+                ph = have[section].get(pkey)
+                if ph is None:
+                    cmp.only_model.append(f"{section} {want['uniquename']}.{pw['uniquename']}")
+                else:
+                    cmp.fields(f"{where}.{section}.{pw['uniquename']}", pw, ph, fields)
+            for pkey in sorted(set(have[section]) - set(want[section])):
+                cmp.only_solution.append(f"{section} {want['uniquename']}.{have[section][pkey]['uniquename']}")
+    for key in sorted(set(sol) - set(want_apis)):
+        cmp.only_solution.append(f"custom API {sol[key]['uniquename']}")
+
+
+def compare(sol_dirs, root: Path):
+    """Compare the *.dv.plugin.yaml files with the solutions, field by field, as plan would."""
+    dvp._require_yaml()
+    sols = [read_solution(Path(d)) for d in sol_dirs]
+    merge_check(sols)
+    existing = existing_units(root, sol_dirs)
+    for prev in existing.values():
+        report_ = dvp.Report()
+        dvp.validate_unit(prev["file"], report_)
+        if report_.errors:
+            raise ImportError_(f"{prev['file']} is invalid ({report_.errors[0]}) — run validate with dvac-plugins")
+    al = Aligner(sols, existing, None, root)
+    al.resolve_steps()
+    al.resolve_apis()
+    cmp = Comparison()
+    cmp.skipped = [f"{where}: {why}" for where, why in al.skipped]
+    skipped = {where.lower() for where, _why in al.skipped}
+    for key in sorted(set(al.units) | set(existing)):
+        unit, prev = al.units.get(key), existing.get(key)
+        if prev is None:
+            cmp.only_solution.append(f"{unit['kind']} {unit['name']} ({len(unit['steps'])} step(s), "
+                                     f"{len(unit['apis'])} custom API(s))")
+            continue
+        data = prev["data"]
+        kind = dvp.unit_kind(data)
+        name = data[kind]["name"]
+        if unit is None:
+            cmp.only_model.append(f"{kind} {name}")
+            continue
+        if unit["kind"] != kind:
+            cmp.differs.append(f"{name}.kind: model={kind!r}  solution={unit['kind']!r}")
+        compare_steps(cmp, name, data.get("steps") or [], unit["steps"],
+                      {w[len("step "):] for w in skipped if w.startswith("step ")})
+        compare_apis(cmp, data.get("custom_apis"), unit["apis"], skipped)
+    return cmp
+
+
+def print_comparison(cmp):
+    sections = (("Only in the solution", "+", cmp.only_solution, dvp.green),
+                ("Only in the plug-in files", "-", cmp.only_model, dvp.red),
+                ("Differs", "~", cmp.differs, dvp.yellow),
+                ("In the solution, not declared in the files (informational)", "·", cmp.undeclared, dvp.grey),
+                ("In the solution, not comparable (informational)", "!", cmp.skipped, dvp.grey))
+    for title, mark, items, colour in sections:
+        if items:
+            print(dvp.bold(f"{title}:"))
+            for item in items:
+                print(colour(f"  {mark} {item}"))
+            print()
+
+
+def cmd_compare(args):
+    root = resolve_root(args)
+    try:
+        cmp = compare(args.solutions, root)
+    except ImportError_ as e:
+        dvp.print_error(e)
+        return 1
+    print_comparison(cmp)
+    print(dvp.grey("Not compared (" + NOT_CARRIED + "): package or assembly id, build output path, enabled."))
+    if not cmp.drift:
+        print(dvp.green("The plug-in files and the solution describe the same registrations."))
+        dvp.print_status("in-sync")
+        return 0
+    dvp.print_status(
+        "drift", reason=f"{cmp.drift} difference(s) between the plug-in files and the solution",
+        fix="to align the files on the solution, review the import below; to align the solution on the "
+            "files, plan and apply with dvac-plugins, then export and unpack again (dataverse:dv-solution) "
+            "— never edit the unpacked solution",
+        next_cmd=import_command(args, write=False))
+    return 2 if args.detailed_exitcode else 0
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="dv_plugin_import.py", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="dv_plugin_solution.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("solution", help="align the *.dv.plugin.yaml files with one or more unpacked solutions")
-    p.add_argument("solutions", nargs="+", help="unpacked solution folder(s) (holding Other/Solution.xml)")
-    p.add_argument("--root", help="folder searched for *.dv.plugin.yaml files (default: the repo root)")
-    p.add_argument("--projects-dir", help="for a new file whose project has no .csproj yet: create it in "
-                                          "<dir>/<Project>/ (relative to --root). Default: next to <Project>.csproj")
-    p.add_argument("--write", action="store_true", help="write the new and changed files")
-    p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
-    p.add_argument("--detailed-exitcode", action="store_true",
-                   help="CI: exit 2 when files would change (default: 0)")
+    for name, help_ in (("import", "align the *.dv.plugin.yaml files with one or more unpacked solutions"),
+                        ("compare", "compare the *.dv.plugin.yaml files with unpacked solutions (writes nothing)")):
+        p = sub.add_parser(name, help=help_)
+        p.add_argument("solutions", nargs="+", help="unpacked solution folder(s) (holding Other/Solution.xml)")
+        p.add_argument("--root", help="folder searched for *.dv.plugin.yaml files (default: the repo root)")
+        p.add_argument("--detailed-exitcode", action="store_true",
+                       help="CI: exit 2 when " + ("files would change" if name == "import" else
+                                                  "the files and the solution differ") + " (default: 0)")
+        if name == "import":
+            p.add_argument("--projects-dir", help="for a new file whose project has no .csproj yet: create it in "
+                                                  "<dir>/<Project>/ (relative to --root). Default: next to "
+                                                  "<Project>.csproj")
+            p.add_argument("--write", action="store_true", help="write the new and changed files")
+            p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
     args = ap.parse_args(argv)
     dvp.ensure_deps(dvp.REQUIREMENTS)
-    return {"solution": cmd_solution}[args.cmd](args)
+    return {"import": cmd_import, "compare": cmd_compare}[args.cmd](args)
 
 
 if __name__ == "__main__":

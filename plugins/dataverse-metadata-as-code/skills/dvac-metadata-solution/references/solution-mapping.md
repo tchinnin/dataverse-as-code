@@ -1,6 +1,6 @@
 # Solution → model mapping
 
-`dv_metadata_import.py` reads the SolutionPackager layout produced by `pac solution unpack`. This page lists what it reads and how each element becomes a `.dv.metadata.yaml` field. The format itself is described in the `dvac-metadata` skill (`references/format.md`).
+`dv_metadata_solution.py` reads the SolutionPackager XML layout produced by `pac solution unpack` — read only, it never writes in the unpacked folder. This page lists what it reads and how each element becomes a `.dv.metadata.yaml` field, for `import` and `compare` alike. The format itself is described in the `dvac-metadata` skill (`references/format.md`).
 
 ## Files read
 
@@ -84,3 +84,12 @@ When a skipped column is read by a formula, or a lookup targets a custom table o
 - The same Choice or relationship described differently by two solutions is an error.
 - Only-in-the-model entries are kept: tables (file untouched), columns, keys, Choices and options.
 - Existing order is kept; new columns and keys come after, in solution order.
+
+## Compare
+
+`compare` builds the same model documents from the solution, without an existing model, and runs the `dvac-metadata` plan diff with the solution in the place of the server:
+
+- **`~` differs** — a field the model declares (or a field the plan always manages: `type`, `label`, `required_level`, `ownership`, `table_type`, `auditing`, a lookup's `target` and `cascade`, the primary column, a key's columns) whose value differs from the solution. The solution value includes its defaults (Int32 bounds, `userlocal`, standard Yes/No labels…), so a model that declares a default is not reported.
+- **`·` not declared** — a value the solution holds, outside the defaults, that the model leaves out (a column's `max_length`, `min`, `max`, `precision`…; a table's `label_plural` or `description`; a Choice's `description`). The format does not manage what a file leaves out, so this is not drift.
+- **`+` / `-`** — components (table, column, key, Choice, option) on one side only. A table only in the model is one line, not one per column. A model component the solution holds in a form the format cannot read is listed under `!`, not as `-`.
+- Not compared: option colors (set at creation only) and solution membership.

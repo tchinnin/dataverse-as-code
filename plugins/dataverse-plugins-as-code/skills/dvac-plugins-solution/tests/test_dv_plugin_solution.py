@@ -1,4 +1,4 @@
-"""Offline tests for dv_plugin_import.py — alignment of the plug-in files with an unpacked solution.
+"""Offline tests for dv_plugin_solution.py — import and compare between the plug-in files and an unpacked solution.
 
 Run:  python3 -m unittest discover -s <skill>/tests -v
 
@@ -7,6 +7,7 @@ describes exactly the dvac-plugins samples: a plug-in package whose types are kn
 key only, and a plug-in assembly whose types are named.
 """
 import contextlib
+import hashlib
 import io
 import shutil
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL / "scripts"))
-import dv_plugin_import as imp  # noqa: E402
+import dv_plugin_solution as imp  # noqa: E402
 
 dvp = imp.dvp
 SAMPLES = SKILL.parent / "dvac-plugins" / "references" / "samples"
@@ -64,7 +65,10 @@ class ImportCase(unittest.TestCase):
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
     def imp(self, *opts):
-        return run("solution", str(self.sol), "--root", str(self.root), *opts)
+        return run("import", str(self.sol), "--root", str(self.root), *opts)
+
+    def cmp(self, *opts):
+        return run("compare", str(self.sol), "--root", str(self.root), *opts)
 
     def unit(self, rel):
         return dvp.load_yaml(self.root / rel)
@@ -181,7 +185,7 @@ class TestErrors(ImportCase):
         self.assertEqual(self.snapshot(), {})
 
     def test_not_an_unpacked_solution(self):
-        code, out, _ = run("solution", str(self.tmp), "--root", str(self.root))
+        code, out, _ = run("import", str(self.tmp), "--root", str(self.root))
         self.assertEqual(code, 1)
         self.assertIn("STATUS: error", out)
         self.assertIn("not an unpacked solution", out)
@@ -208,9 +212,9 @@ class TestNewFileLocation(ImportCase):
 
     def test_projects_dir_for_a_project_not_created_yet(self):
         shutil.rmtree(self.root / "src")
-        code, out, _ = self.imp("--projects-dir", "plugins", "--write")
+        code, out, _ = self.imp("--projects-dir", "dataverse/plugins", "--write")
         self.assertEqual(code, 0, out)
-        self.assertTrue((self.root / "plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml").is_file())
+        self.assertTrue((self.root / "dataverse/plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml").is_file())
 
     def test_existing_files_are_found_wherever_they_are(self):
         moved = self.root / "elsewhere" / "Contoso.Crm.Plugins.dv.plugin.yaml"
@@ -219,6 +223,90 @@ class TestNewFileLocation(ImportCase):
         code, out, _ = self.imp()
         self.assertEqual(code, 0, out)
         self.assertIn("= elsewhere/Contoso.Crm.Plugins.dv.plugin.yaml", out)
+
+
+class TestCompare(ImportCase):
+    def test_samples_are_in_sync(self):
+        self.with_samples()
+        before = self.snapshot()
+        code, out, err = self.cmp("--detailed-exitcode")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("STATUS: in-sync", out)
+        self.assertIn("Not compared (the solution does not carry it)", out)
+        self.assertEqual(self.snapshot(), before, "compare writes nothing")
+
+    def test_differences_by_section(self):
+        self.with_samples()
+        self.edit(self.sol / CREATE_STEP, "<Rank>1</Rank>", "<Rank>3</Rank>")
+        (self.sol / STEPS / "{0b0a0003-0000-4000-8000-000000000013}.xml").unlink()
+        self.edit(self.root / CONTOSO, "    description: Sets the order number and the default status.\n", "")
+        code, out, _ = self.cmp()
+        self.assertEqual(code, 0, out)
+        self.assertIn("~ prfx_Contoso.Crm.Plugins / step Contoso.Crm.Plugins.OrderPreCreate: Create of "
+                      "prfx_crm_order.rank: model=1  solution=3", out)
+        self.assertRegex(out, r"- step [^\n]+\(prfx_Contoso\.Crm\.Plugins\)")
+        self.assertIn("· prfx_Contoso.Crm.Plugins / step Contoso.Crm.Plugins.OrderPreCreate: Create of "
+                      "prfx_crm_order.description = 'Sets the order number and the default status.'", out)
+        self.assertIn("STATUS: drift", out)
+        self.assertIn("REASON: 2 difference(s)", out)
+        self.assertRegex(out, r"NEXT \(only after the user confirms\): .*dv_plugin_solution\.py import ")
+        self.assertNotIn("--write", out)
+        self.assertEqual(self.cmp("--detailed-exitcode")[0], 2)
+
+    def test_unit_only_in_the_solution(self):
+        shutil.copy(SAMPLES / "Contoso.Crm.Plugins.dv.plugin.yaml", self.root / CONTOSO)
+        _, out, _ = self.cmp()
+        self.assertIn("+ assembly Legacy.Plugins (1 step(s), 0 custom API(s))", out)
+
+    def test_unknown_class_is_not_reported_as_missing(self):
+        self.with_samples()
+        self.edit(self.sol / CREATE_STEP, 'Name="Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order"',
+                  'Name="Order - default values"')
+        _, out, _ = self.cmp()
+        self.assertIn("! step Order - default values: plug-in class or message unknown", out)
+
+
+def tree_digest(folder):
+    """sha256 and mtime of every file below folder."""
+    return {p.relative_to(folder).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+class TestSolutionReadOnly(ImportCase):
+    def test_no_subcommand_touches_the_solution(self):
+        before = tree_digest(self.sol)
+        self.imp()
+        self.imp("--write")
+        self.cmp()
+        self.edit(self.root / CONTOSO, "    stage: pre-operation\n", "    stage: pre-operation\n    rank: 2\n")
+        self.cmp()
+        self.imp("--write")
+        self.assertEqual(tree_digest(self.sol), before)
+
+    def test_projects_dir_inside_the_solution_is_refused(self):
+        shutil.rmtree(self.root / "src")
+        sol = self.root / "solutions" / "core"
+        shutil.copytree(FIXTURE, sol)
+        before = tree_digest(sol)
+        code, out, _ = run("import", str(sol), "--root", str(self.root),
+                           "--projects-dir", "solutions/core/plugins", "--write")
+        self.assertEqual(code, 1)
+        self.assertIn("STATUS: refused", out)
+        self.assertEqual(tree_digest(sol), before)
+
+    def test_plugin_file_inside_the_solution_is_ignored(self):
+        self.with_samples()
+        sol = self.root / "solutions" / "core"
+        shutil.copytree(FIXTURE, sol)
+        stray = sol / "Contoso.Crm.Plugins.dv.plugin.yaml"
+        shutil.copy(SAMPLES / "Contoso.Crm.Plugins.dv.plugin.yaml", stray)
+        self.edit(self.root / CONTOSO, "    stage: pre-operation\n", "    stage: pre-operation\n    rank: 2\n")
+        before = tree_digest(sol)
+        code, out, _ = run("import", str(sol), "--root", str(self.root), "--write")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"~ {CONTOSO}", out)
+        self.assertNotIn("solutions/core/Contoso", out)
+        self.assertEqual(tree_digest(sol), before)
 
 
 if __name__ == "__main__":

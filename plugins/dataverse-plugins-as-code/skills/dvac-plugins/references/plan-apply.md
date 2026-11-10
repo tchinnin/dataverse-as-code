@@ -19,8 +19,8 @@
 Dataverse plug-in plan
   env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev — or command-line flags / environment variables)
   az user  : dev@contoso.com (tenant 0000…)
-  package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
-             plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.3.nupkg  sha256 1f0c9a7e5b21
+  package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  dataverse/plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
+             dataverse/plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.3.nupkg  sha256 1f0c9a7e5b21
 
   - delete  step       Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order  Create prfx_crm_order pre-operation sync
   ↑ push    package    prfx_Contoso.Crm.Plugins
@@ -46,7 +46,7 @@ Every `plan` and `apply` ends with a fixed footer, in plain text, for agents to 
 STATUS: changes-pending        # no-changes | blocked | error | applied | stale-plan
 PLAN FILE: /repo/.dv-plugin/plan.json
 DOUBLE CONFIRMATION: none      # or one "  - <item>" line per item to confirm twice
-NEXT (only after the user confirms): python3 /…/scripts/dv_plugin.py apply /repo/plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
+NEXT (only after the user confirms): python3 /…/scripts/dv_plugin.py apply /repo/dataverse/plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
 ```
 
 - `NEXT` is the exact command to run after the user confirms, with absolute paths and the environment flags of the `plan` run.

@@ -20,10 +20,10 @@ We suggest pairing this marketplace with [`powerplatform-bestpractices`](https:/
 
 | Plugin | Skill / agent | Model |
 |---|---|---|
-| `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner`, `dvac-metadata-docs`, `dvac-metadata-import` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. `dvac-metadata-docs` generates a Mermaid ERD of the model; `dvac-metadata-import` regenerates the model from an unpacked solution. |
-| `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner`, `dvac-plugins-docs`, `dvac-plugins-import` | `<PluginName>.dv.plugin.yaml`, in the same folder as the plug-in's `.csproj` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. `dvac-plugins-docs` documents the execution pipeline and the Custom APIs with Mermaid diagrams; `dvac-plugins-import` regenerates the files from an unpacked solution. |
+| `dataverse-metadata-as-code` | `dvac-metadata` / `dvac-metadata-planner`, `dvac-metadata-docs`, `dvac-metadata-solution` | `dataverse/metadata/**/*.dv.metadata.yaml` — global Choices, tables, columns, lookups, alternate keys. Never deletes. `dvac-metadata-docs` generates a Mermaid ERD of the model; `dvac-metadata-solution` imports the model from an unpacked solution or compares the two. |
+| `dataverse-plugins-as-code` | `dvac-plugins` / `dvac-plugins-planner`, `dvac-plugins-docs`, `dvac-plugins-solution` | `<PluginName>.dv.plugin.yaml`, in the same folder as the plug-in's `.csproj` — plug-in package or assembly, steps, images, Custom APIs. First upload via the Web API, then `pac plugin push`. `dvac-plugins-docs` documents the execution pipeline and the Custom APIs with Mermaid diagrams; `dvac-plugins-solution` imports the files from an unpacked solution or compares the two. |
 | `dataverse-data-as-code` | `dvac-data` / `dvac-data-planner` | `dataverse/data/<table>.dv.data.yaml` + `dataverse/data/<stage>/` overlays — configuration and reference rows, identified by alternate key, for dev, UAT or prod. Deactivates or deletes only on opt-in, within a `delete_filter`. |
-| `dataverse-security-as-code` | `dvac-security` / `dvac-security-planner` | `dataverse/security/roles/*.dv.security.yaml` — security roles of the root business unit, each with its complete privilege set (table privileges per access level, miscellaneous privileges). Grants, changes levels and revokes (double confirmation); never deletes a role. |
+| `dataverse-security-as-code` | `dvac-security` / `dvac-security-planner`, `dvac-security-docs`, `dvac-security-solution` | `dataverse/security/roles/*.dv.security.yaml` — security roles of the root business unit, each with its complete privilege set (table privileges per access level, miscellaneous privileges). Grants, changes levels and revokes (double confirmation); never deletes a role. `dvac-security-docs` documents the roles functionally: a tables × roles access matrix and a Mermaid diagram per role. `dvac-security-solution` imports the roles from an unpacked solution or compares the two. |
 
 ## Example
 
@@ -92,7 +92,7 @@ columns:
 
 ### 2. Describe the plug-ins
 
-`plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml` — next to the `.csproj`:
+`dataverse/plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml` — next to the `.csproj` (the only location rule; the folder is an example):
 
 ```yaml
 version: "1.0"
@@ -152,12 +152,12 @@ Every `plan` ends with this footer. The agent shows the output to you as is, ask
 The plug-in plan compares the build output and the registrations, saved to `.dv-plugin/plan.json`:
 
 ```
-$ python3 dv_plugin.py plan plugins/Contoso.Crm.Plugins
+$ python3 dv_plugin.py plan dataverse/plugins/Contoso.Crm.Plugins
 Dataverse plug-in plan
   env      : https://contoso-dev.crm4.dynamics.com (/repo/.env.dev)
   az user  : dev@contoso.com (tenant 0000…)
-  package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
-             plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.0.nupkg  sha256 1f0c9a7e5b21
+  package  : prfx_Contoso.Crm.Plugins → prfx_crm_Core (unmanaged)  dataverse/plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
+             dataverse/plugins/Contoso.Crm.Plugins/bin/Release/Contoso.Crm.Plugins.1.0.0.nupkg  sha256 1f0c9a7e5b21
 
   + create  package    prfx_Contoso.Crm.Plugins  Contoso.Crm.Plugins.1.0.0.nupkg version 1.0.0
   + create  step       Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order  Create prfx_crm_order pre-operation sync
@@ -170,7 +170,7 @@ STATUS: changes-pending
 PLAN FILE: /repo/.dv-plugin/plan.json
 DOUBLE CONFIRMATION:
   - create package prfx_Contoso.Crm.Plugins
-NEXT (only after the user confirms): python3 /…/dv_plugin.py apply /repo/plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
+NEXT (only after the user confirms): python3 /…/dv_plugin.py apply /repo/dataverse/plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
 ```
 
 A plan can also show `~ update` (changed in place), `↑ push` (new package content), `- delete` (a step or image removed from the model — asks for a second confirmation), `!` blocked changes that Dataverse cannot make in place, and `?` unmanaged components that are reported but never deleted. See each skill's `references/plan-apply.md`.
@@ -196,7 +196,7 @@ STATUS: applied
 ```
 
 ```
-$ python3 dv_plugin.py apply plugins/Contoso.Crm.Plugins --plan-file .dv-plugin/plan.json
+$ python3 dv_plugin.py apply dataverse/plugins/Contoso.Crm.Plugins --plan-file .dv-plugin/plan.json
 Applying 4 change(s) to https://contoso-dev.crm4.dynamics.com
   ✓ create package    prfx_Contoso.Crm.Plugins
   ✓ create step       Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order
@@ -284,7 +284,7 @@ The Python dependencies need no setup: on its first run each tool installs them 
         └── skills/
             ├── dvac-<domain>/SKILL.md (+ references/, scripts/, tests/)
             ├── dvac-<domain>-docs/SKILL.md (+ references/, scripts/, tests/)     # optional, offline documentation
-            └── dvac-<domain>-import/SKILL.md (+ references/, scripts/, tests/)   # optional, model from an unpacked solution
+            └── dvac-<domain>-solution/SKILL.md (+ references/, scripts/, tests/) # optional, import/compare with an unpacked solution
 ```
 
 Authoring standards, naming, versioning and commit conventions are in [AGENTS.md](./AGENTS.md).

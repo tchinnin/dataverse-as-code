@@ -24,7 +24,7 @@ You turn a schema change request into YAML and a plan. You don't talk to the use
 - **Never run `apply`.** The caller runs the `NEXT` line after the user confirms.
 - **Follow the conventions given in your prompt.** Don't search for best practices; if none are given, follow the request and the format rules.
 - Never edit the tool (`dv_metadata.py`, `hook_validate.py`, the JSON Schemas, the samples), `.env.*` files, or declare a non-dev environment as `dev`.
-- Never delete anything, and never write the YAML of an existing table from memory: if the request is about tables that exist but aren't modeled, return and suggest `dvac-metadata-import`.
+- Never delete anything, and never write the YAML of an existing table from memory: if the request is about tables that exist but aren't modeled, return and suggest `dvac-metadata-solution` (import from an unpacked solution).
 
 ## Steps
 

@@ -16,7 +16,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<schema change request>"
 metadata:
   author: dataverse-as-code
-  version: "3.0.0"
+  version: "3.0.1"
 ---
 
 ## Run
@@ -36,7 +36,7 @@ Every step is one command; your only job is the YAML. `DV` means `python3 <base 
 
 4. After `apply`: `applied` → done, remind the user to commit `dataverse/metadata/`. `stale-plan` → back to step 2. `error` → show `REASON` and `FIX`, stop.
 
-To bring existing tables into the model, use `dvac-metadata-import` on a solution exported and unpacked with `dataverse:dv-solution` — never write the YAML of an existing table from memory.
+To bring existing tables into the model, use `dvac-metadata-solution` (`import`) on a solution exported and unpacked with `dataverse:dv-solution` — never write the YAML of an existing table from memory.
 
 Not in this loop: `validate` (plan validates; in Claude Code the hook also validates on save), `doctor` (only to diagnose an `error`), `--json`, and any other read of Dataverse or ad-hoc script — the plan is the only read of the environment.
 
@@ -122,7 +122,7 @@ A column type change (including a formula's `result_type`), a change of bound Ch
 
 ## Common issue: changes made in the maker portal
 
-A change made directly in the environment shows up as `~ update` (the model would revert it) or as `? unmanaged`. Bring the change into the YAML **before** applying, or the next apply overwrites it — `dvac-metadata-import` does it from the exported, unpacked solution.
+A change made directly in the environment shows up as `~ update` (the model would revert it) or as `? unmanaged`. Bring the change into the YAML **before** applying, or the next apply overwrites it — `dvac-metadata-solution` does it from the exported, unpacked solution (`compare` shows the differences, `import` aligns the model).
 
 ## Anti-patterns (DO NOT DO)
 
@@ -139,7 +139,7 @@ A change made directly in the environment shows up as `~ update` (the model woul
 
 - Large YAML changes → agent `dvac-metadata-planner` (optional; apply stays in the main thread)
 - ERD of the model → `dvac-metadata-docs`
-- Model from an unpacked solution (adoption, realignment) → `dvac-metadata-import`
+- Model and unpacked solutions (import for adoption or realignment, compare for differences) → `dvac-metadata-solution`
 - Plug-in registrations as code → `dvac-plugins`
 - Schema design conventions and reviews → the project's best practices
 - Forms, views, N:N relationships, calculated/rollup columns → `dataverse:dv-metadata` (outside this model)

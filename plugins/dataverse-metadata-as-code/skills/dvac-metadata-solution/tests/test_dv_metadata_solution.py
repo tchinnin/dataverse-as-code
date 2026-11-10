@@ -1,4 +1,4 @@
-"""Offline tests for dv_metadata_import.py — alignment of the model with an unpacked solution.
+"""Offline tests for dv_metadata_solution.py — import and compare between the model and an unpacked solution.
 
 Run:  python3 -m unittest discover -s <skill>/tests -v
 
@@ -6,6 +6,7 @@ tests/fixtures/prfx_crm_Core is a synthetic unpacked solution (SolutionPackager 
 describes exactly the dvac-metadata samples, plus a standard table the format cannot hold.
 """
 import contextlib
+import hashlib
 import io
 import shutil
 import sys
@@ -15,7 +16,7 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL / "scripts"))
-import dv_metadata_import as imp  # noqa: E402
+import dv_metadata_solution as imp  # noqa: E402
 
 dvm = imp.dvm
 SAMPLES = SKILL.parent / "dvac-metadata" / "references" / "samples"
@@ -53,7 +54,10 @@ class ImportCase(unittest.TestCase):
         p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
     def imp(self, *opts, sols=None):
-        return run("solution", *[str(s) for s in (sols or [self.sol])], "--model", str(self.model), *opts)
+        return run("import", *[str(s) for s in (sols or [self.sol])], "--model", str(self.model), *opts)
+
+    def cmp(self, *opts):
+        return run("compare", str(self.sol), "--model", str(self.model), *opts)
 
     def snapshot(self):
         return {p.relative_to(self.model).as_posix(): p.read_text(encoding="utf-8")
@@ -214,7 +218,7 @@ class TestErrors(ImportCase):
         self.assertFalse(self.model.exists())
 
     def test_not_an_unpacked_solution(self):
-        code, out, _ = run("solution", str(self.tmp), "--model", str(self.model))
+        code, out, _ = run("import", str(self.tmp), "--model", str(self.model))
         self.assertEqual(code, 1)
         self.assertIn("STATUS: error", out)
         self.assertIn("not an unpacked solution", out)
@@ -250,6 +254,104 @@ class TestLanguages(ImportCase):
         order = self.table("prfx_crm_Order")
         self.assertEqual(order["label"], {1033: "Order", 1036: "Commande"})
         self.assertEqual(order["columns"]["prfx_Amount"]["label"], {1033: "Amount"})
+
+
+class TestCompare(ImportCase):
+    def test_samples_are_in_sync(self):
+        self.with_samples()
+        before = self.snapshot()
+        code, out, err = self.cmp("--detailed-exitcode")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("STATUS: in-sync", out)
+        self.assertNotIn("NEXT", out)
+        # Values the solution holds that the sample leaves unmanaged are informational.
+        self.assertIn("· prfx_crm_Order.prfx_OrderNumber.max_length = 100", out)
+        self.assertIn("! table Account: not prefixed with the publisher prefix", out)
+        self.assertEqual(self.snapshot(), before, "compare writes nothing")
+
+    def test_differences_by_section(self):
+        self.with_samples()
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "    label: Amount\n", "    label: Net Amount\n",
+                  root=self.model)
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Attachment:",
+                  "  prfx_Extra:\n    label: Extra\n    type: text\n\n  prfx_Attachment:", root=self.model)
+        self.add_attribute("prfx_crm_Order", attribute("prfx_Reference", "nvarchar", "Reference",
+                                                       "<Format>text</Format><MaxLength>40</MaxLength>"))
+        code, out, _ = self.cmp()
+        self.assertEqual(code, 0, out)
+        self.assertIn("+ column prfx_crm_Order.prfx_Reference (text)", out)
+        self.assertIn("- column prfx_crm_Order.prfx_Extra", out)
+        self.assertIn("~ prfx_crm_Order.prfx_Amount.label: model='Net Amount'  solution='Amount'", out)
+        self.assertIn("STATUS: drift", out)
+        self.assertIn("REASON: 3 difference(s)", out)
+        self.assertIn("never edit the unpacked solution", out)
+        self.assertRegex(out, r"NEXT \(only after the user confirms\): .*dv_metadata_solution\.py import .*--model ")
+        self.assertNotIn("--write", out)
+        self.assertEqual(self.cmp("--detailed-exitcode")[0], 2)
+
+    def test_table_only_on_one_side(self):
+        self.with_samples()
+        (self.model / "tables" / "prfx_crm_Customer.dv.metadata.yaml").unlink()
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "    target: prfx_crm_Customer", "    target: account",
+                  root=self.model)
+        _, out, _ = self.cmp()
+        self.assertIn("+ table prfx_crm_customer", out)
+        self.assertIn("~ prfx_crm_Order.prfx_CustomerId.target: model='account'  solution='prfx_crm_customer'", out)
+
+    def test_value_the_model_declares_differently(self):
+        self.with_samples()
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", '    format: "ORD-{SEQNUM:6}"\n',
+                  '    format: "ORD-{SEQNUM:6}"\n    max_length: 50\n',
+                  root=self.model)
+        _, out, _ = self.cmp()
+        self.assertIn("~ prfx_crm_Order.prfx_OrderNumber.max_length: model=50  solution=100", out)
+        self.assertNotIn("· prfx_crm_Order.prfx_OrderNumber.max_length", out)
+
+    def test_choice_option(self):
+        self.with_samples()
+        self.edit("OptionSets/prfx_crm_choice_OrderStatus.xml", 'description="Draft"', 'description="New"')
+        _, out, _ = self.cmp()
+        self.assertIn("~ prfx_crm_choice_OrderStatus:100000000.label: model='Draft'  solution='New'", out)
+
+    def test_tables_filter(self):
+        self.with_samples()
+        self.edit("OptionSets/prfx_crm_choice_OrderStatus.xml", 'description="Draft"', 'description="New"')
+        _, out, _ = self.cmp("--tables", "prfx_crm_Customer")
+        self.assertIn("STATUS: in-sync", out)
+
+    def test_no_model(self):
+        code, out, _ = self.cmp()
+        self.assertEqual(code, 1)
+        self.assertIn("STATUS: error", out)
+        self.assertIn("no model to compare", out)
+
+
+def tree_digest(folder):
+    """sha256 and mtime of every file below folder."""
+    return {p.relative_to(folder).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
+            for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+class TestSolutionReadOnly(ImportCase):
+    def test_no_subcommand_touches_the_solution(self):
+        before = tree_digest(self.sol)
+        self.imp()
+        self.imp("--write")
+        self.cmp()
+        self.edit("tables/prfx_crm_Order.dv.metadata.yaml", "  prfx_Attachment:",
+                  "  prfx_Extra:\n    label: Extra\n    type: text\n\n  prfx_Attachment:", root=self.model)
+        self.cmp()
+        self.imp("--write")
+        self.assertEqual(tree_digest(self.sol), before)
+
+    def test_model_inside_the_solution_is_refused(self):
+        before = tree_digest(self.sol)
+        for model in (self.sol, self.sol / "Other" / "model"):
+            code, out, _ = run("import", str(self.sol), "--model", str(model), "--write")
+            self.assertEqual(code, 1)
+            self.assertIn("STATUS: refused", out)
+            self.assertIn("read only", out)
+        self.assertEqual(tree_digest(self.sol), before)
 
 
 if __name__ == "__main__":

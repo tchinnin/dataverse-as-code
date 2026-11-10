@@ -16,7 +16,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<security role change request>"
 metadata:
   author: dataverse-as-code
-  version: "1.1.0"
+  version: "1.1.2"
 ---
 
 ## Run
@@ -128,6 +128,8 @@ A role holding only the project's table privileges is often not enough to open a
 ## Skill boundaries
 
 - Large role changes → agent `dvac-security-planner` (optional; apply stays in the main thread)
+- Functional documentation of the roles (access matrix, diagram per role) → `dvac-security-docs`
+- Roles and unpacked solutions (import for adoption or realignment, compare for differences) → `dvac-security-solution`
 - Tables, columns, Choices as code → `dvac-metadata`
 - Assigning roles to users or teams, business units, column security profiles → `dataverse:dv-security` (outside this model)
 - Solution creation, export, pull-to-repo → `dataverse:dv-solution`

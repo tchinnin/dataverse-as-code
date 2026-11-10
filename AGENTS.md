@@ -59,10 +59,10 @@ marketplace: dataverse-as-code
         │   ├── references/               ← <output>.md, examples/ (generated from the model samples)
         │   ├── scripts/                  ← dv_<domain>_docs.py, requirements.txt
         │   └── tests/                    ← required (stdlib unittest, offline)
-        └── dvac-<domain>-import/         ← optional import skill (see below)
+        └── dvac-<domain>-solution/       ← optional solution skill (see below)
             ├── SKILL.md
             ├── references/               ← solution-mapping.md
-            ├── scripts/                  ← dv_<domain>_import.py, requirements.txt
+            ├── scripts/                  ← dv_<domain>_solution.py (import, compare), requirements.txt
             └── tests/                    ← required, with fixtures/ (a synthetic unpacked solution)
 ```
 
@@ -78,22 +78,24 @@ A plugin may add one documentation skill, `dvac-<domain>-docs`, that generates d
 - **Convention-neutral.** It shows the model as written and states only platform facts (execution order, cardinality). No design or naming judgement.
 - `references/examples/` holds the output generated from the model skill's samples; a test fails when it is stale.
 
-### Import skills
+### Solution skills
 
-A plugin may add one import skill, `dvac-<domain>-import`, that regenerates or aligns the model files from solutions unpacked in the repo (`pac solution unpack` layout). It has no agent and no hook.
+A plugin may add one solution skill, `dvac-<domain>-solution`, that works between the model files and solutions unpacked in the repo (`pac solution unpack` XML layout). Its tool has two subcommands: `import` regenerates or aligns the model files from the solutions, `compare` lists what differs between them. It has no agent and no hook.
 
+- **The unpacked solution is read only.** No subcommand writes, moves, reformats or creates a file in a solution folder given as input. A write target inside one (`--model`, `--projects-dir`, the computed path of a file) is refused with `STATUS: refused` and nothing is written; a model file found inside one is ignored. A difference is fixed in the model, or in dev followed by a new export — never in the XML.
 - **Offline.** It reads the unpacked solution and the model files, never an environment. Exporting and unpacking belong to the official `dataverse:dv-solution` skill.
-- **Diff first.** Without `--write` it writes nothing: it prints new, changed (with a diff) and unchanged files, the model entries the solution doesn't hold and the components the format cannot describe. `--write` writes only after the whole result passes the model skill's validator.
-- **Never reduces the model.** Entries only in the model are kept and listed, never removed — for plug-ins a removed step would be deleted by the next `apply`.
+- **`compare` writes nothing.** It reports, in this order: `+` only in the solution, `-` only in the model, `~` differs (`<where>.<field>: model=… solution=…`), then for information `·` values the solution holds that the model doesn't declare (the format leaves them unmanaged) and `!` what the format cannot describe or the tool cannot compare offline. Only `+`, `-` and `~` are drift. Fields are compared as `plan` compares them with the server (reuse the model skill's normalisation, never a second set of rules). It ends with `STATUS: in-sync` or `STATUS: drift` (+ `REASON`, `FIX`, and `NEXT`: the import without `--write`).
+- **`import` is diff first.** Without `--write` it writes nothing: it prints new, changed (with a diff) and unchanged files, the model entries the solution doesn't hold and the components the format cannot describe. `--write` writes only after the whole result passes the model skill's validator.
+- **Never reduces the model.** Entries only in the model are kept and listed, never removed — a removed step would be deleted, a removed privilege revoked by the next `apply`.
 - **Keeps what the solution doesn't carry** (ids, build paths, state, optional fields the file leaves unmanaged) and never writes a GUID from the solution.
 - **Minimal rewrites.** A file whose data doesn't change is not rewritten, so its comments survive.
 - **No silent loss.** Every component it cannot describe is listed with its reason.
-- It imports the model skill of the same plugin, like a documentation skill. Its tests run on a synthetic fixture in `tests/fixtures/` that mirrors the model skill's samples, and the import of that fixture into the samples must report no change. Never commit an export from a real project.
+- It imports the model skill of the same plugin, like a documentation skill. Its tests run on a synthetic fixture in `tests/fixtures/` that mirrors the model skill's samples: the import of that fixture into the samples must report no change, `compare` must report `in-sync`, and a `TestSolutionReadOnly` checks that the fixture is byte-identical after every subcommand and that a write target inside it is refused. Never commit an export from a real project.
 
 
 ### Skills
 
-Required sections: `## Run` (first, see below), `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, an import skill `## Workflow: import → review → write → plan`; the `## Connection` of both states that they need none.
+Required sections: `## Run` (first, see below), `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, a solution skill `## Workflow: compare → review` and `## Workflow: import → review → write → plan`; the `## Connection` of both states that they need none.
 
 ### Deterministic run
 
@@ -102,7 +104,7 @@ The agent's only job is the YAML; every other step is one command with a fixed o
 - **The script path comes from the loaded skill.** Commands are written `python3 <base directory>/scripts/…`, where `<base directory>` is the absolute path the agent receives when the skill loads (`Base directory for this skill: …` on Copilot CLI, VS Code and Claude Code). No `${…}` variable in SKILL.md: Copilot doesn't expand them. Never tell an agent to search the disk (no `Glob` in `allowed-tools` or `tools`): stale copies exist.
 - **Dependencies install themselves.** `ensure_deps()` (shared block) re-runs the script in a cached venv when PyYAML or jsonschema is missing. Skills never ask for `pip install`.
 - **The loop is `plan` → show → confirm → `NEXT`.** `plan` validates and checks the guard, so `validate` and `doctor` are not steps of the loop (`doctor` diagnoses an `error`). The plan is the agent's only read of the environment: no ad-hoc queries or scripts.
-- **Fixed footer.** `plan`, `apply` and `import` end with `STATUS:` (`changes-pending`, `no-changes`, `blocked`, `error`, `applied`, `stale-plan`, `refused`, `written`) and, as relevant, `REASON:`, `FIX:`, `PLAN FILE:`, `DOUBLE CONFIRMATION:` and `NEXT (only after the user confirms): <exact command>`. The script computes the double-confirmation list; the agent copies the output unchanged and never rebuilds a command.
+- **Fixed footer.** `plan`, `apply`, `import` and `compare` end with `STATUS:` (`changes-pending`, `no-changes`, `blocked`, `error`, `applied`, `stale-plan`, `refused`, `written`, `in-sync`, `drift`) and, as relevant, `REASON:`, `FIX:`, `PLAN FILE:`, `DOUBLE CONFIRMATION:` and `NEXT (only after the user confirms): <exact command>`. The script computes the double-confirmation list; the agent copies the output unchanged and never rebuilds a command.
 - **Exit codes.** `plan` exits 0 once computed (VS Code shows any non-zero code as a failure); `--detailed-exitcode` gives CI 2 = pending, 1 = blocked.
 - **Writing rule.** No instruction may ask an agent to search, guess or reformat. When a step needs judgement, the script should print the answer instead (a `FIX:` line, an `adopt`/`export` command).
 
@@ -135,12 +137,12 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 ### Compatibility
 
-The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, a `<Name>.dv.plugin.yaml` in the same folder as its `.csproj`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) the plan file format, and the `plan` exit codes and status footer are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
+The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, a `<Name>.dv.plugin.yaml` in the same folder as its `.csproj`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) the plan file format, the solution tool subcommands (`import`, `compare`), and the `plan` exit codes and status footer are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
 
 ## Skill Authoring Standards
 
 - **Language:** English everywhere.
-- **Naming:** skills `dvac-<domain>` (documentation skills `dvac-<domain>-docs`, import skills `dvac-<domain>-import`), agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
+- **Naming:** skills `dvac-<domain>` (documentation skills `dvac-<domain>-docs`, solution skills `dvac-<domain>-solution`), agents `dvac-<domain>-planner`, plugins `dataverse-<domain>-as-code`. Lowercase, hyphens only; directory name = `name`.
 - **Frontmatter:**
 
 ```yaml
@@ -179,8 +181,11 @@ python3 -m unittest discover -s plugins/dataverse-data-as-code/skills/dvac-data/
 python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-docs/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-docs/tests
-python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-import/tests
-python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-import/tests
+python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security-docs/tests
+python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security-docs/tests
+python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-solution/tests
+python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-solution/tests
+python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security-solution/tests
 ```
 
 Every suite must pass, and each `TestSharedBlock` must run (not skip).
