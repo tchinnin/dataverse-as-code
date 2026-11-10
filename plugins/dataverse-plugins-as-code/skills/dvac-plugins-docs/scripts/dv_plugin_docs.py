@@ -334,6 +334,7 @@ def main(argv=None):
     p.add_argument("--check", action="store_true", help="compare with --out instead of writing (CI)")
     p.add_argument("--tables", help="comma-separated table logical names to include (default: all)")
     args = ap.parse_args(argv)
+    dvp.ensure_deps(dvp.REQUIREMENTS)
     return {"doc": cmd_doc}[args.cmd](args)
 
 

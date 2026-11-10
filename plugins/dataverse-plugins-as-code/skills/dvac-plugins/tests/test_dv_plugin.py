@@ -799,7 +799,9 @@ class TestSharedBlock(unittest.TestCase):
     SHARED = ("GuardError", "ApiError", "_c", "green", "yellow", "red", "grey", "bold", "Report",
               "ENV_KEYS", "ENV_HELP", "find_repo_root", "read_dotenv", "_norm_url", "add_env_args",
               "env_inputs", "_env_source", "dev_environment", "az_path", "az_json",
-              "_debug", "Api", "check_solution")
+              "_debug", "Api", "check_solution",
+              "DEPENDENCIES", "venv_dir", "venv_python", "ensure_deps", "token_account", "command_line",
+              "print_status", "print_error")
     ALLOWED = {"dvac-plugins": "dvac-metadata", "DV_PLUGIN_DEBUG": "DV_METADATA_DEBUG"}
 
     def test_shared_code_is_identical(self):

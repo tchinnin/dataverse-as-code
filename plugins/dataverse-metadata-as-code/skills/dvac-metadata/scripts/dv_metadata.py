@@ -38,9 +38,12 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import base64
 import hashlib
+import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -776,7 +779,7 @@ def _env_source(repo_root: Path, url=None, stage=None, tenant=None):
     env_path = repo_root / ".env.dev"
     if env_path.is_file():
         return str(env_path), read_dotenv(env_path)
-    raise GuardError("no dev environment given — " + ENV_HELP)
+    raise GuardError("no dev environment given → ask the user for the dev environment URL and tenant, then " + ENV_HELP)
 
 
 def dev_environment(repo_root: Path, url=None, stage=None, tenant=None):
@@ -939,6 +942,110 @@ def check_solution(api, solution):
         raise GuardError(f"solution '{solution}' is MANAGED in {api.url} — this is not a dev "
                          f"environment. Metadata changes are only allowed on an unmanaged dev solution.")
     return rows[0]["solutionid"]
+
+
+# --------------------------------------------------------------------------- #
+# Agent-facing runtime: dependencies, account, status footer
+# --------------------------------------------------------------------------- #
+DEPENDENCIES = ("yaml", "jsonschema")
+
+
+def venv_dir(requirements: Path) -> Path:
+    """Cached venv keyed by the requirement lines (comments ignored): tools with the same
+    dependencies share one venv."""
+    reqs = sorted(line.strip() for line in requirements.read_text(encoding="utf-8").splitlines()
+                  if line.strip() and not line.strip().startswith("#"))
+    digest = hashlib.sha256("\n".join(reqs).encode()).hexdigest()[:12]
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "dataverse-as-code" / f"venv-{digest}"
+
+
+def venv_python(venv: Path) -> Path:
+    return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def ensure_deps(requirements: Path):
+    """Re-run this command in a cached venv when PyYAML or jsonschema is missing.
+    The venv is created on the first run (uv when available, else venv + pip)."""
+    missing = [m for m in DEPENDENCIES if importlib.util.find_spec(m) is None]
+    if not missing or os.environ.get("DVAC_BOOTSTRAPPED"):
+        return
+    venv = venv_dir(requirements)
+    py = venv_python(venv)
+    if not py.is_file():
+        print(f"dataverse-as-code: installing {', '.join(missing)} into {venv} (first run only)",
+              file=sys.stderr, flush=True)
+        uv = shutil.which("uv")
+        steps = ([[uv, "venv", "--quiet", "--python", sys.executable, str(venv)],
+                  [uv, "pip", "install", "--quiet", "--python", str(py), "-r", str(requirements)]] if uv else
+                 [[sys.executable, "-m", "venv", str(venv)],
+                  [str(py), "-m", "pip", "install", "--quiet", "-r", str(requirements)]])
+        for step in steps:
+            proc = subprocess.run(step, capture_output=True, text=True)
+            if proc.returncode != 0:
+                shutil.rmtree(venv, ignore_errors=True)
+                print_status("error", reason="could not install the Python dependencies: "
+                             + (proc.stderr.strip() or proc.stdout.strip())[-400:],
+                             fix=f"{sys.executable} -m pip install -r {requirements}")
+                raise SystemExit(1)
+    env = dict(os.environ, DVAC_BOOTSTRAPPED="1")
+    argv = [str(py), str(Path(sys.argv[0]).resolve()), *sys.argv[1:]]
+    sys.stdout.flush()
+    if os.name == "nt":
+        raise SystemExit(subprocess.run(argv, env=env).returncode)
+    os.execve(str(py), argv, env)
+
+
+def token_account(token):
+    """'user (tenant id)' read from the access token — no extra az call."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (AttributeError, IndexError, ValueError):
+        return "?"
+    user = (claims.get("upn") or claims.get("unique_name") or claims.get("preferred_username")
+            or claims.get("appid") or "?")
+    return f"{user} (tenant {claims.get('tid', '?')})"
+
+
+def command_line(script, *args):
+    """The exact command to run a tool script, for the NEXT line."""
+    parts = ["python" if os.name == "nt" else "python3", str(Path(script).resolve()), *map(str, args)]
+    return subprocess.list2cmdline(parts) if os.name == "nt" else " ".join(shlex.quote(p) for p in parts)
+
+
+def print_status(status, reason=None, fix=None, plan_file=None, confirmations=None, next_cmd=None):
+    """Fixed footer that agents copy as is: STATUS first, then what to do next."""
+    lines = ["", f"STATUS: {status}"]
+    if reason:
+        lines.append(f"REASON: {reason}")
+    if fix:
+        lines.append(f"FIX: {fix}")
+    if plan_file:
+        lines.append(f"PLAN FILE: {plan_file}")
+    if confirmations is not None:
+        lines += ["DOUBLE CONFIRMATION:" + ("" if confirmations else " none")]
+        lines += [f"  - {c}" for c in confirmations]
+    if next_cmd:
+        lines.append(f"NEXT (only after the user confirms): {next_cmd}")
+    print("\n".join(lines), flush=True)
+
+
+def print_error(exc):
+    """STATUS: error footer for a refusal or a failure; the fix follows the '→' of the message."""
+    msg = str(exc.code if isinstance(exc, SystemExit) else exc).strip()
+    if msg.startswith("ERROR: "):
+        msg = msg[7:]
+    reason, _, fix = msg.partition("→")
+    if not fix:
+        fix = {GuardError: "change what the reason names, then re-run plan — never work around the guard",
+               ApiError: "see 'Common Dataverse errors' in references/plan-apply.md, then re-run plan",
+               urllib.error.URLError: "check the environment URL with the user and the network, then re-run plan",
+               }.get(type(exc), "fix what the reason names, then re-run plan")
+    print_status("error", reason=" ".join(reason.split()), fix=" ".join(fix.replace("run:", "").split()))
 
 
 # --------------------------------------------------------------------------- #
@@ -1495,11 +1602,26 @@ def _validated_model(model_arg):
     return model_dir, {"meta": meta, "choices": choices, "tables": tables}
 
 
-def compute_plan(model_arg, strong=False, env_args=None):
+def double_confirmation(actions, model):
+    """Changes the user must confirm twice: permanent ownership, cascade deletes."""
+    tables = {t["key"].lower(): t for t in model["tables"]}
+    out = []
+    for a in actions:
+        if a["kind"] == "table" and a["op"] == "create" and tables[a["name"].lower()].get("ownership") == "org":
+            out.append(f"create organization-owned table {a['name']} (ownership is permanent)")
+        if a["kind"] == "lookup" and (a["op"] == "create" or "cascade.delete" in a.get("changes", {})):
+            spec = tables[a["table"].lower()]["columns"][a["name"]]
+            if expand_cascade(spec.get("cascade", "referential"))["delete"] == "all":
+                out.append(f"lookup {a['table']}.{a['name']} deletes child rows with the parent (cascade delete)")
+    return out
+
+
+def compute_plan(model_arg, strong=False, env_args=None, api=None):
     model_dir, model = _validated_model(model_arg)
     env = dev_environment(find_repo_root(model_dir), **(env_args or {}))
-    api = Api(env, strong=strong)
-    account = az_json(["account", "show"])
+    if api is None:
+        api = Api(env, strong=strong)
+    api.strong = strong
     state = read_server(api, model["meta"], model["choices"], model["tables"])
     result = diff(model, state)
     result["blocked"] += language_blocks(model, provisioned_languages(api))
@@ -1507,11 +1629,12 @@ def compute_plan(model_arg, strong=False, env_args=None):
         "plan_version": PLAN_VERSION,
         "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "env_url": env["url"], "env_source": env["source"],
-        "az_account": f"{(account or {}).get('user', {}).get('name', '?')} (tenant {(account or {}).get('tenantId', '?')})",
+        "az_account": token_account(api.token()),
         "solution": model["meta"]["publisher"]["solution"],
         "model_dir": str(model_dir), "model_hash": _model_hash(model_dir),
         **result,
     }
+    plan["double_confirmation"] = double_confirmation(plan["actions"], model)
     return model_dir, model, env, api, plan
 
 
@@ -1527,10 +1650,17 @@ def language_blocks(model, provisioned):
             for l in sorted(used_languages(model) - provisioned)]
 
 
-def plan_exit_code(plan):
+def plan_status(plan):
     if plan["blocked"]:
-        return 1
-    return 2 if plan["actions"] else 0
+        return "blocked"
+    return "changes-pending" if plan["actions"] else "no-changes"
+
+
+def plan_exit_code(plan, detailed=False):
+    """0 once the plan is computed; with --detailed-exitcode (CI): 1 blocked, 2 pending."""
+    if not detailed:
+        return 0
+    return {"blocked": 1, "changes-pending": 2, "no-changes": 0}[plan_status(plan)]
 
 
 def cmd_validate(args):
@@ -1555,10 +1685,18 @@ def cmd_plan(args):
         print(json.dumps({**plan, "plan_file": str(out)}, indent=2, ensure_ascii=False, default=str))
     else:
         render_plan(plan)
-        print(grey(f"\nPlan saved to {out}"))
-        if plan["actions"] and not plan["blocked"]:
-            print(grey(f"Apply it with: dv_metadata.py apply {args.model} --plan-file {out}"))
-    return plan_exit_code(plan)
+        status = plan_status(plan)
+        print_status(status, plan_file=out.resolve(), confirmations=plan["double_confirmation"],
+                     fix="change the model so nothing is blocked, then re-run plan" if status == "blocked" else None,
+                     next_cmd=command_line(__file__, "apply", model_dir, "--plan-file", out.resolve(),
+                                           *env_flags(args)) if status == "changes-pending" else None)
+    return plan_exit_code(plan, args.detailed_exitcode)
+
+
+def env_flags(args):
+    """The environment flags of this run, repeated on the NEXT command."""
+    return [x for flag, v in (("--env-url", args.env_url), ("--stage", args.stage), ("--tenant", args.tenant))
+            if v for x in (flag, v)]
 
 
 def cmd_doctor(args):
@@ -2001,18 +2139,20 @@ class Applier:
 def cmd_apply(args):
     saved = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
     if saved.get("plan_version") != PLAN_VERSION:
-        print(red("ERROR: unsupported plan file version — re-run plan."), file=sys.stderr)
+        print_status("stale-plan", reason="the plan file was written by another version of the tool",
+                     fix="re-run plan, show the new plan to the user and get a new confirmation")
         return 1
     _model_dir, model, _env, api, fresh = compute_plan(args.model, env_args=env_inputs(args))
     if _canonical(fresh) != _canonical(saved):
-        print(red("ERROR: stale plan — the model or the server changed since it was computed.\n"
-                  "Re-run plan, review it again, and apply the new plan file."), file=sys.stderr)
+        print_status("stale-plan", reason="the model or the environment changed since the plan was computed",
+                     fix="re-run plan, show the new plan to the user and get a new confirmation")
         return 1
     if fresh["blocked"]:
-        print(red("ERROR: the plan contains blocked changes — fix the model, re-plan, then apply."), file=sys.stderr)
+        print_status("blocked", reason="the plan contains blocked changes",
+                     fix="change the model so nothing is blocked, then re-run plan")
         return 1
     if not fresh["actions"]:
-        print(green("No changes to apply."))
+        print_status("no-changes")
         return 0
 
     # Every read from here on follows our own writes: bypass the metadata cache.
@@ -2039,17 +2179,21 @@ def cmd_apply(args):
 
     print(f"\n{done}/{len(fresh['actions'])} change(s) applied.")
     if failure:
-        print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
+        print_status("error", reason=f"stopped at the first failure: {failure}",
+                     fix="see 'Common Dataverse errors' in references/plan-apply.md, fix the cause, then re-run plan")
         return 1
-    _, _, _, _, after = compute_plan(args.model, strong=True, env_args=env_inputs(args))
+    _, _, _, _, after = compute_plan(args.model, strong=True, env_args=env_inputs(args), api=api)
     if after["actions"] or after["blocked"]:
         # Read with Consistency: Strong, so this is a real gap, not cache lag.
         print(red("Post-apply check FAILED — the environment still differs from the model "
                   "after apply (read with Consistency: Strong, so this is not a cache delay). "
                   "Remaining differences:"))
         render_plan(after)
+        print_status("error", reason="the environment still differs from the model after apply",
+                     fix="investigate the remaining differences above; do not retry blindly")
         return 1
     print(green("Post-apply plan is empty — the environment matches the model."))
+    print_status("applied")
     return 0
 
 
@@ -2068,20 +2212,25 @@ def main(argv=None):
     p.add_argument("model")
     p.add_argument("--out", help=f"plan file (default <repo-root>/{PLAN_DIR}/plan.json)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--detailed-exitcode", action="store_true",
+                   help="CI: exit 2 when changes are pending, 1 when blocked (default: 0 once computed)")
     add_env_args(p)
     p = sub.add_parser("apply", help="execute a saved plan (aborts if stale)")
     p.add_argument("model")
     p.add_argument("--plan-file", required=True)
     add_env_args(p)
     args = ap.parse_args(argv)
+    ensure_deps(REQUIREMENTS)
     try:
         return {"doctor": cmd_doctor, "validate": cmd_validate,
                 "plan": cmd_plan, "apply": cmd_apply}[args.cmd](args)
-    except GuardError as e:
-        print(red(f"REFUSED: {e}"), file=sys.stderr)
+    except (GuardError, ApiError, RuntimeError, urllib.error.URLError) as e:
+        print_error(e)
         return 1
-    except ApiError as e:
-        print(red(f"Dataverse error: {e}"), file=sys.stderr)
+    except SystemExit as e:
+        if not isinstance(e.code, str):
+            raise
+        print_error(e)
         return 1
 
 

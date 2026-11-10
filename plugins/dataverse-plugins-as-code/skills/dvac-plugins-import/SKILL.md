@@ -11,11 +11,11 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob
+allowed-tools: Read, Write, Edit, Bash, Grep
 argument-hint: "<unpacked solution folder>... [--write]"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 ## Official skill
@@ -24,7 +24,7 @@ metadata:
 
 ## Best practices
 
-This skill is convention-neutral: it writes the step names, ranks and settings the solution holds, as they are. Where unpacked solutions and plug-in projects live is the project's best practice: look for it (README, `AGENTS.md`, installed skills) and follow it. If there is none, ask the user for the solution folder, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+This skill is convention-neutral: it writes the step names, ranks and settings the solution holds, as they are. Where unpacked solutions and plug-in projects live is the project's best practice: follow the one already in your context (the project's instructions, loaded skills) — don't search for it. If there is none, ask the user for the solution folder, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
@@ -50,12 +50,14 @@ An existing file is found wherever it is below `--root` (default: the repo root)
 One tool, `scripts/dv_plugin_import.py`:
 
 ```sh
-python3 <this-skill>/scripts/dv_plugin_import.py solution <unpacked-dir>... [--root <dir>] [--write] [--no-diff]
+python3 <base directory>/scripts/dv_plugin_import.py solution <unpacked-dir>... [--root <dir>] [--write] [--no-diff]
 ```
 
-- **Without `--write` nothing is written.** It prints `+` new file, `~` changed file with its diff, `=` unchanged, then what is **only in the files** (kept) and what could **not be imported** (skipped). Exit code `2` means changes are pending.
+`<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`); never search the disk for the script. The script installs its own Python dependencies on its first run.
+
+- **Without `--write` nothing is written.** It prints `+` new file, `~` changed file with its diff, `=` unchanged, then what is **only in the files** (kept) and what could **not be imported** (skipped). The output ends with `STATUS:` (`changes-pending`, `no-changes` or `error`) and, when files would change, the exact `NEXT` command with `--write`. It exits 0 (`--detailed-exitcode`: 2 when files would change).
 - **`--write`** writes the new and changed files, after validating them with the `dvac-plugins` validator. An invalid result is refused and nothing is written.
-- It loads and validates with the `dvac-plugins` tool of the same plugin: install that skill's requirements (`pip install -r <plugin>/skills/dvac-plugins/scripts/requirements.txt`, inside a venv).
+- It loads and validates with the `dvac-plugins` tool of the same plugin, whose dependencies are installed on the first run.
 
 How each XML element maps to the format, and how plug-in classes are found, are in [`references/solution-mapping.md`](references/solution-mapping.md).
 
@@ -63,7 +65,7 @@ How each XML element maps to the format, and how plug-in classes are found, are 
 
 1. Make sure the unpacked solution is current (`dataverse:dv-solution` exports and unpacks it).
 2. Run the tool **without** `--write` and show the user the file list, the diffs, the kept entries and the skipped components.
-3. After the user confirms, run it again with `--write`. Fill in what the tool reports as unknown (typically `custom_apis.<name>.plugin`).
+3. After the user confirms, run the `NEXT` line exactly as printed. Fill in what the tool reports as unknown (typically `custom_apis.<name>.plugin`).
 4. Build the project, then `validate` and `plan` with `dvac-plugins` (agent `dvac-plugins-planner`). After an import from the same dev environment the plan should hold no step change; anything left is drift to discuss with the user.
 
 ## Safety model

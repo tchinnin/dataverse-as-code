@@ -11,11 +11,11 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob
+allowed-tools: Read, Write, Edit, Bash, Grep
 argument-hint: "<unpacked solution folder>... [--write]"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 ## Official skill
@@ -24,7 +24,7 @@ metadata:
 
 ## Best practices
 
-This skill is convention-neutral: it writes the names, labels and types the solution holds, as they are. Where unpacked solutions live and how often they are refreshed are the project's best practices: look for them (README, `AGENTS.md`, installed skills) and follow them. If there are none, ask the user for the solution folder, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+This skill is convention-neutral: it writes the names, labels and types the solution holds, as they are. Where unpacked solutions live and how often they are refreshed are the project's best practices: follow the ones already in your context (the project's instructions, loaded skills) — don't search for them. If there are none, ask the user for the solution folder, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
@@ -50,14 +50,16 @@ None. The tool reads the unpacked solution and the model files only. Getting a f
 One tool, `scripts/dv_metadata_import.py`:
 
 ```sh
-python3 <this-skill>/scripts/dv_metadata_import.py solution <unpacked-dir>... \
+python3 <base directory>/scripts/dv_metadata_import.py solution <unpacked-dir>... \
         [--model dataverse/metadata] [--tables <a,b>] [--write] [--no-diff]
 ```
 
-- **Without `--write` nothing is written.** It prints `+` new file, `~` changed file with its diff, `=` unchanged, then what is **only in the model** (kept) and what the format **cannot describe** (skipped). Exit code `2` means changes are pending.
+`<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`); never search the disk for the script. The script installs its own Python dependencies on its first run.
+
+- **Without `--write` nothing is written.** It prints `+` new file, `~` changed file with its diff, `=` unchanged, then what is **only in the model** (kept) and what the format **cannot describe** (skipped). The output ends with `STATUS:` (`changes-pending`, `no-changes` or `error`) and, when files would change, the exact `NEXT` command with `--write`. It exits 0 (`--detailed-exitcode`: 2 when files would change).
 - **`--write`** writes the new and changed files, after validating the whole model with the `dvac-metadata` validator. An invalid result is refused and nothing is written.
 - **Several solutions** are merged: a table split across solutions gets the columns of each; a component described differently by two solutions is an error.
-- It loads and validates with the `dvac-metadata` tool of the same plugin: install that skill's requirements (`pip install -r <plugin>/skills/dvac-metadata/scripts/requirements.txt`, inside a venv).
+- It loads and validates with the `dvac-metadata` tool of the same plugin, whose dependencies are installed on the first run.
 
 How each XML element maps to the format, and every skip reason, are in [`references/solution-mapping.md`](references/solution-mapping.md).
 
@@ -65,7 +67,7 @@ How each XML element maps to the format, and every skip reason, are in [`referen
 
 1. Make sure the unpacked solution is current (`dataverse:dv-solution` exports and unpacks it).
 2. Run the tool **without** `--write` and show the user the file list, the diffs, the kept entries and the skipped components.
-3. After the user confirms, run it again with `--write`.
+3. After the user confirms, run the `NEXT` line exactly as printed.
 4. Run `validate`, then `plan` with `dvac-metadata` (agent `dvac-metadata-planner`). After an import from the same dev environment the plan should be empty; anything left is drift to discuss with the user, never to apply blindly.
 
 ## Safety model

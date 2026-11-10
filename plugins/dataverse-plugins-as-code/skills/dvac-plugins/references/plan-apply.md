@@ -2,6 +2,17 @@
 
 `dv_plugin.py` works like Terraform. `plan` compares the model with the dev environment and saves the result in `<repo-root>/.dv-plugin/plan.json`, which is gitignored. `apply` runs exactly that result.
 
+## Subcommands
+
+| Subcommand | Touches the server | Purpose |
+|---|---|---|
+| `doctor [path]` | read | Checks deps, the `az` session, the `pac` profile, the dev guard, each solution (unmanaged) and the build output |
+| `validate <file\|dir>` | no | Structural (JSON Schema) and semantic checks, plus a scan of the project's `.cs` files for the plug-in classes |
+| `plan <file\|dir> [--json]` | read | Diff: `+ create`, `~ update` (`field: old → new`), `↑ push`, `- delete`, `! blocked`, `? unmanaged` |
+| `apply <file\|dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. |
+| `export --solution <s> --package <name>` (or `--assembly`) | read | Prints the YAML of existing registrations, to adopt a project registered by hand |
+
+
 ## Plan output
 
 ```
@@ -26,7 +37,21 @@ Needs double confirmation:
 Summary: 1 to create, 2 to update, 1 to push, 1 to delete, 0 blocked, 0 unmanaged.
 ```
 
-`--json` prints the same plan as JSON with a `plan_file` key. It also includes `double_confirm`, the list of items to confirm twice, and `notes`.
+
+## Status footer
+
+Every `plan` and `apply` ends with a fixed footer, in plain text, for agents to act on without interpreting the rest:
+
+```
+STATUS: changes-pending        # no-changes | blocked | error | applied | stale-plan
+PLAN FILE: /repo/.dv-plugin/plan.json
+DOUBLE CONFIRMATION: none      # or one "  - <item>" line per item to confirm twice
+NEXT (only after the user confirms): python3 /…/scripts/dv_plugin.py apply /repo/plugins/Contoso.Crm.Plugins --plan-file /repo/.dv-plugin/plan.json
+```
+
+- `NEXT` is the exact command to run after the user confirms, with absolute paths and the environment flags of the `plan` run.
+- On `STATUS: error` (or `stale-plan`, `blocked`), `REASON:` and `FIX:` replace `NEXT`. `FIX` names the next action — often a question for the user (dev URL, `az login --tenant …`).
+- `--json` prints the plan as JSON instead, for CI.
 
 ## Action kinds
 
@@ -115,11 +140,11 @@ A blocked change is never run. The plan exits with code 1, and `apply` refuses a
 
 ## Exit codes
 
-| Code | `plan` | `apply` / `validate` / `doctor` / `export` |
-|---|---|---|
-| 0 | no changes | success |
-| 1 | error, guard refusal, or blocked changes | failure / refusal |
-| 2 | changes pending | — |
+| Code | `plan` | `plan --detailed-exitcode` (CI) | `apply` / `validate` / `doctor` |
+|---|---|---|---|
+| 0 | plan computed (any `STATUS`) | no changes | success |
+| 1 | error or guard refusal | error, refusal, or blocked changes | failure / refusal |
+| 2 | — | changes pending | — |
 
 ## Common errors during apply
 

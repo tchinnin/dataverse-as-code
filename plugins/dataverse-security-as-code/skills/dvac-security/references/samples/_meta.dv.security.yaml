@@ -1,0 +1,4 @@
+# Security model entry point.
+# Example values — use your own solution.
+version: "1.0"
+solution: prfx_crm_Core   # unmanaged solution in dev; every role is added to it

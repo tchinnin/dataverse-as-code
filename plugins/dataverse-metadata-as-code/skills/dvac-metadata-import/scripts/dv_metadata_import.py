@@ -676,7 +676,7 @@ def cmd_solution(args):
     try:
         changes, builder, _meta = build(args.solutions, model_dir, _csv(args.tables))
     except ImportError_ as e:
-        print(dvm.red(f"ERROR: {e}"), file=sys.stderr)
+        dvm.print_status("error", reason=str(e), fix="fix what the reason names, then run the import again")
         return 1
     pending = report(changes, builder, model_dir, show_diff=not args.no_diff)
     result = validate_result(model_dir, changes)
@@ -687,20 +687,31 @@ def cmd_solution(args):
             print(dvm.red("  ✗ ") + e, file=sys.stderr)
         print(dvm.red(f"\nThe aligned model would be invalid ({len(result.errors)} error(s)) — nothing written."),
               file=sys.stderr)
+        dvm.print_status("error", reason="the aligned model would be invalid — nothing written",
+                         fix="fix the errors listed above, then run the import again")
         return 1
     if not pending:
         print(dvm.green("\nThe model already matches the solution."))
+        dvm.print_status("no-changes")
         return 0
     if not args.write:
         print(dvm.bold(f"\n{pending} file(s) to write — review, then run again with --write."))
-        return 2
+        dvm.print_status("changes-pending", next_cmd=write_command(args))
+        return 2 if args.detailed_exitcode else 0
     for path, old, new in changes:
         if old != new:
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(new)
-    print(dvm.green(f"\nWritten: {pending} file(s). Next: validate, then plan."))
+    print(dvm.green(f"\nWritten: {pending} file(s). Next: plan."))
+    dvm.print_status("written", next_cmd=dvm.command_line(dvm.__file__, "plan", model_dir.resolve()))
     return 0
+
+
+def write_command(args):
+    """The same import with --write, every path absolute."""
+    return dvm.command_line(__file__, "solution", *[Path(d).resolve() for d in args.solutions],
+                            "--model", Path(args.model).resolve(), *(["--tables", args.tables] if args.tables else []), "--write")
 
 
 def _csv(value):
@@ -716,7 +727,10 @@ def main(argv=None):
     p.add_argument("--tables", help="comma-separated table schema names to align (default: all)")
     p.add_argument("--write", action="store_true", help="write the new and changed files")
     p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
+    p.add_argument("--detailed-exitcode", action="store_true",
+                   help="CI: exit 2 when files would change (default: 0)")
     args = ap.parse_args(argv)
+    dvm.ensure_deps(dvm.REQUIREMENTS)
     return {"solution": cmd_solution}[args.cmd](args)
 
 

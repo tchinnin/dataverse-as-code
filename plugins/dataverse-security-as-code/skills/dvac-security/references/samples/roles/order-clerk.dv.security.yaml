@@ -1,0 +1,23 @@
+# Example role. Names and access levels illustrate one scheme — follow your own
+# best practices. This file is the role's COMPLETE privilege set: a privilege the
+# role holds in dev but that isn't listed here is revoked by apply.
+name: Order Clerk
+description: Creates and follows up the orders of their business unit.
+member_inheritance: direct_and_team
+
+tables:
+  # key = table logical name; levels: none | user | business_unit | parent_child | organization
+  prfx_crm_order:
+    create: user
+    read: business_unit
+    write: user
+    append: user
+    append_to: user
+  prfx_crm_customer:
+    read: organization
+    append_to: organization
+  account:
+    read: organization
+
+privileges:
+  prvExportToExcel: organization

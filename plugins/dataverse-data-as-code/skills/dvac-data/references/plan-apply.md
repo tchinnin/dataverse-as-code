@@ -2,6 +2,16 @@
 
 `dv_data.py` works like Terraform, one stage at a time. `plan` compares the model of a stage (base + overlays) with that stage's environment and saves the result. `apply` runs exactly that result.
 
+## Subcommands
+
+| Subcommand | Touches the server | Purpose |
+|---|---|---|
+| `doctor --stage <s> [data-dir]` | read | Deps, `az` session, stage guard, each table and its alternate key, bypass privilege |
+| `validate <dir\|file> [--stage <s>]` | no | Structural (JSON Schema) + semantic checks (keys, overlays, filters, references) |
+| `plan <data-dir> --stage <s> [--json]` | read | Diff → `+ create` / `~ update` / `~ activate` / `- deactivate` / `- delete` / `! blocked` |
+| `apply <data-dir> --stage <s> --plan-file <f> [--confirm-url …] [--confirm-deletes …] [--batch-size <n>]` | write | Runs exactly the saved plan, in `CreateMultiple`/`UpdateMultiple` batches where the table supports them (default 100 rows). Aborts if stale. |
+
+
 ## Plan output
 
 ```
@@ -33,10 +43,24 @@ Stage 'prod' is not dev: apply needs --confirm-url with the URL typed by the use
 
 - Rows are shown as `table[key=value]`. References are shown as `table[col=value]`, with `(created by this plan)` when the referenced row is created by the same apply.
 - `⚠` lines are warnings: a row outside `delete_filter`, or a privilege that couldn't be checked. They don't block.
-- `--json` prints the same plan as JSON, with a `plan_file` key added, for agents to read.
 - The plan file goes to `<repo-root>/.dv-data/<stage>/plan.json` (or `--out`).
 
 Exit code: `0` no change, `2` changes pending, `1` error or blocked items.
+
+## Status footer
+
+Every `plan` and `apply` ends with a fixed footer, in plain text, for agents to act on without interpreting the rest:
+
+```
+STATUS: changes-pending        # no-changes | blocked | error | applied | stale-plan | refused
+PLAN FILE: /repo/.dv-data/<stage>/plan.json
+DOUBLE CONFIRMATION: none      # or one "  - <item>" line per item to confirm twice
+NEXT (only after the user confirms): python3 /…/scripts/dv_data.py apply /repo/dataverse/data --plan-file /repo/.dv-data/<stage>/plan.json
+```
+
+- `NEXT` is the exact command to run after the user confirms, with absolute paths and the environment flags of the `plan` run. Outside dev it ends with `--confirm-url <URL TYPED BY THE USER>` (and `--confirm-deletes <COUNT TYPED BY THE USER>` when rows are deleted): only the user types those values.
+- On `STATUS: error` (or `stale-plan`, `blocked`), `REASON:` and `FIX:` replace `NEXT`. `FIX` names the next action — often a question for the user (dev URL, `az login --tenant …`).
+- `--json` prints the plan as JSON instead, for CI.
 
 ## Actions
 
@@ -117,3 +141,11 @@ Both are typed by the user. An agent shows the URL so the user can copy it, and 
 ## Post-apply check
 
 After a successful apply, the tool recomputes the plan. It must be empty. If not, it prints the remaining differences and exits with `1` — usually a plug-in or a flow changed a value after the write, or the value is normalised by Dataverse (trimmed text, rounded decimal). Align the model or the logic, then re-plan.
+
+## Exit codes
+
+| Code | `plan` | `plan --detailed-exitcode` (CI) | `apply` / `validate` / `doctor` |
+|---|---|---|---|
+| 0 | plan computed (any `STATUS`) | no changes | success |
+| 1 | error or guard refusal | error, refusal, or blocked changes | failure / refusal |
+| 2 | — | changes pending | — |

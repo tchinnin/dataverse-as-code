@@ -519,7 +519,7 @@ def cmd_solution(args):
     try:
         changes, al = build(args.solutions, root)
     except ImportError_ as e:
-        print(dvp.red(f"ERROR: {e}"), file=sys.stderr)
+        dvp.print_status("error", reason=str(e), fix="fix what the reason names, then run the import again")
         return 1
     pending = report(changes, al, root, show_diff=not args.no_diff)
     result = validate_result(changes)
@@ -530,20 +530,31 @@ def cmd_solution(args):
             print(dvp.red("  ✗ ") + e, file=sys.stderr)
         print(dvp.red(f"\nThe aligned files would be invalid ({len(result.errors)} error(s)) — nothing written."),
               file=sys.stderr)
+        dvp.print_status("error", reason="the aligned files would be invalid — nothing written",
+                         fix="fix the errors listed above, then run the import again")
         return 1
     if not pending:
         print(dvp.green("\nThe plug-in files already match the solution."))
+        dvp.print_status("no-changes")
         return 0
     if not args.write:
         print(dvp.bold(f"\n{pending} file(s) to write — review, then run again with --write."))
-        return 2
+        dvp.print_status("changes-pending", next_cmd=write_command(args))
+        return 2 if args.detailed_exitcode else 0
     for path, old, new in changes:
         if old != new:
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(new)
-    print(dvp.green(f"\nWritten: {pending} file(s). Next: validate, then plan."))
+    print(dvp.green(f"\nWritten: {pending} file(s). Next: plan."))
+    dvp.print_status("written", next_cmd=dvp.command_line(dvp.__file__, "plan", root))
     return 0
+
+
+def write_command(args):
+    """The same import with --write, every path absolute."""
+    return dvp.command_line(__file__, "solution", *[Path(d).resolve() for d in args.solutions],
+                            "--root", Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd()), "--write")
 
 
 def main(argv=None):
@@ -555,7 +566,10 @@ def main(argv=None):
                                   "under plugins/<Project>/ (default: the repo root)")
     p.add_argument("--write", action="store_true", help="write the new and changed files")
     p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
+    p.add_argument("--detailed-exitcode", action="store_true",
+                   help="CI: exit 2 when files would change (default: 0)")
     args = ap.parse_args(argv)
+    dvp.ensure_deps(dvp.REQUIREMENTS)
     return {"solution": cmd_solution}[args.cmd](args)
 
 

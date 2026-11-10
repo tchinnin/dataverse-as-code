@@ -2,6 +2,16 @@
 
 `dv_metadata.py` works like Terraform without `destroy`. `plan` compares the model with the dev environment and saves the result. `apply` runs exactly that result.
 
+## Subcommands
+
+| Subcommand | Touches the server | Purpose |
+|---|---|---|
+| `doctor [model-dir]` | read | Checks deps, the `az` session, the dev guard and that the solution is unmanaged |
+| `validate <dir\|file>` | no | Structural (JSON Schema) + semantic checks (platform rules, references) |
+| `plan <model-dir> [--json]` | read | Diff → `+ create` / `~ update` (field `old → new`) / `! blocked` / `? unmanaged` |
+| `apply <model-dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. Never deletes. |
+
+
 ## Plan output
 
 ```
@@ -29,7 +39,21 @@ Unmanaged — on the server but not in the model (reported only, never deleted):
 Summary: 3 to create, 2 to update, 1 blocked, 2 unmanaged.
 ```
 
-`--json` prints the same plan as JSON, with a `plan_file` key added, for agents to read.
+
+## Status footer
+
+Every `plan` and `apply` ends with a fixed footer, in plain text, for agents to act on without interpreting the rest:
+
+```
+STATUS: changes-pending        # no-changes | blocked | error | applied | stale-plan
+PLAN FILE: /repo/.dv-metadata/plan.json
+DOUBLE CONFIRMATION: none      # or one "  - <item>" line per item to confirm twice
+NEXT (only after the user confirms): python3 /…/scripts/dv_metadata.py apply /repo/dataverse/metadata --plan-file /repo/.dv-metadata/plan.json
+```
+
+- `NEXT` is the exact command to run after the user confirms, with absolute paths and the environment flags of the `plan` run.
+- On `STATUS: error` (or `stale-plan`, `blocked`), `REASON:` and `FIX:` replace `NEXT`. `FIX` names the next action — often a question for the user (dev URL, `az login --tenant …`).
+- `--json` prints the plan as JSON instead, for CI.
 
 ## Action kinds
 
@@ -90,11 +114,11 @@ The tool only reports these, so the decision stays a human one. Either add the i
 
 ## Exit codes
 
-| Code | `plan` | `apply` / `validate` / `doctor` |
-|---|---|---|
-| 0 | no changes | success |
-| 1 | error, guard refusal, or blocked changes | failure / refusal |
-| 2 | changes pending | — |
+| Code | `plan` | `plan --detailed-exitcode` (CI) | `apply` / `validate` / `doctor` |
+|---|---|---|---|
+| 0 | plan computed (any `STATUS`) | no changes | success |
+| 1 | error or guard refusal | error, refusal, or blocked changes | failure / refusal |
+| 2 | — | changes pending | — |
 
 ## Common Dataverse errors during apply
 

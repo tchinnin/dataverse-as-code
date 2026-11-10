@@ -723,7 +723,9 @@ class TestSharedBlock(unittest.TestCase):
     this tool targets any stage."""
     METADATA = SKILL.parents[2] / "dataverse-metadata-as-code" / "skills" / "dvac-metadata" / "scripts"
     SHARED = ("ApiError", "_c", "green", "yellow", "red", "grey", "bold", "Report",
-              "find_repo_root", "read_dotenv", "_norm_url", "az_path", "az_json", "_debug", "Api")
+              "find_repo_root", "read_dotenv", "_norm_url", "az_path", "az_json", "_debug", "Api",
+              "DEPENDENCIES", "venv_dir", "venv_python", "ensure_deps", "token_account", "command_line",
+              "print_status", "print_error")
     ALLOWED = {"dvac-data": "dvac-metadata", "DV_DATA_DEBUG": "DV_METADATA_DEBUG"}
 
     def test_shared_code_is_identical(self):
@@ -735,6 +737,9 @@ class TestSharedBlock(unittest.TestCase):
         finally:
             sys.path.remove(str(self.METADATA))
         for name in self.SHARED:
+            if not callable(getattr(dv, name)):
+                self.assertEqual(getattr(dv, name), getattr(meta, name), f"{name} drifted from dv_metadata.py")
+                continue
             ours = inspect.getsource(getattr(dv, name))
             for a, b in self.ALLOWED.items():
                 ours = ours.replace(a, b)
@@ -765,6 +770,37 @@ class TestHook(unittest.TestCase):
     def test_valid_sample_passes(self):
         res = self.run_hook(SAMPLES / "prod" / "prfx_parameter.dv.data.yaml")
         self.assertEqual((res.returncode, res.stderr), (0, ""))
+
+
+class TestPlanFooter(unittest.TestCase):
+    """The NEXT command never carries the values only the user may type."""
+
+    def run_plan(self, stage, actions):
+        import contextlib, io
+        plan = {"stage": stage, "actions": actions, "blocked": [], "unmanaged": [], "env_url": "https://a.crm4.dynamics.com",
+                "env_source": "flags", "double_confirmation": dv.double_confirmation(actions)}
+        tmp = Path(tempfile.mkdtemp())
+        out = io.StringIO()
+        try:
+            with mock.patch.object(dv, "compute_plan", return_value=(None, None, plan)), \
+                    mock.patch.object(dv, "render_plan"), contextlib.redirect_stdout(out):
+                code = dv.main(["plan", str(tmp), "--stage", stage, "--out", str(tmp / "p.json")])
+        finally:
+            shutil.rmtree(tmp)
+        return code, out.getvalue()
+
+    def test_outside_dev_the_confirmations_are_placeholders(self):
+        code, out = self.run_plan("prod", [{"op": "delete", "table": "prfx_region", "row": "FR"}])
+        self.assertEqual(code, 0)
+        self.assertIn("DOUBLE CONFIRMATION:\n  - delete prfx_region[FR]", out)
+        self.assertIn("--stage prod", out)
+        self.assertIn("--confirm-url <URL TYPED BY THE USER> --confirm-deletes <COUNT TYPED BY THE USER>", out)
+
+    def test_dev_needs_no_typed_confirmation(self):
+        _, out = self.run_plan("dev", [{"op": "create", "table": "prfx_region", "row": "FR"}])
+        self.assertIn("STATUS: changes-pending", out)
+        self.assertNotIn("--confirm-url", out)
+        self.assertIn("DOUBLE CONFIRMATION: none", out)
 
 
 if __name__ == "__main__":

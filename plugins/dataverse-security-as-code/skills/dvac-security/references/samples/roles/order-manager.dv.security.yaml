@@ -1,0 +1,24 @@
+# Example role — see order-clerk.dv.security.yaml.
+name: Order Manager
+description: Manages every order of the organization.
+
+tables:
+  prfx_crm_order:
+    create: organization
+    read: organization
+    write: organization
+    delete: organization
+    append: organization
+    append_to: organization
+    assign: organization
+    share: organization
+  prfx_crm_customer:
+    create: organization
+    read: organization
+    write: organization
+    append: organization
+    append_to: organization
+
+privileges:
+  prvExportToExcel: organization
+  prvBulkDelete: organization

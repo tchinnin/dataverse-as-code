@@ -10,11 +10,11 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Bash, Grep, Glob
+allowed-tools: Read, Write, Bash, Grep
 argument-hint: "[model dir] [--out <file>]"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 ## Official skill
@@ -23,7 +23,7 @@ metadata:
 
 ## Best practices
 
-This skill is convention-neutral: the diagram shows the model as written — Schema Names, labels, types — and never judges names or design. Where the documentation lives, its title and how it is reviewed are the project's best practices: look for them (README, `AGENTS.md`, installed skills) and follow them. If there are none, suggest `docs/dataverse/data-model.md` (see [Suggested location](#suggested-location)) or ask the user for a path, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+This skill is convention-neutral: the diagram shows the model as written — Schema Names, labels, types — and never judges names or design. Where the documentation lives, its title and how it is reviewed are the project's best practices: follow the ones already in your context (the project's instructions, loaded skills) — don't search for them. If there are none, suggest `docs/dataverse/data-model.md` (see [Suggested location](#suggested-location)) or ask the user for a path, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
@@ -60,9 +60,11 @@ GitHub, Azure DevOps and VS Code render its `mermaid` block; [`references/exampl
 One tool, `scripts/dv_metadata_docs.py`, with one subcommand:
 
 ```sh
-python3 <this-skill>/scripts/dv_metadata_docs.py erd <model-dir> [--out <file>] [--check]
+python3 <base directory>/scripts/dv_metadata_docs.py erd <model-dir> [--out <file>] [--check]
         [--format markdown|mermaid] [--tables <a,b>] [--no-columns] [--lang <LCID>]
 ```
+
+`<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`); never search the disk for the script. The script installs its own Python dependencies on its first run.
 
 | Option | Effect |
 |---|---|
@@ -73,7 +75,7 @@ python3 <this-skill>/scripts/dv_metadata_docs.py erd <model-dir> [--out <file>] 
 | `--no-columns` | Tables and relationships only — for large models |
 | `--lang` | LCID of the labels, when the model is localized (default: the base language) |
 
-It loads and validates the model with the `dvac-metadata` tool of the same plugin, so install that skill's requirements (`pip install -r <plugin>/skills/dvac-metadata/scripts/requirements.txt`, inside a venv). An invalid model is refused. What each element of the diagram means is in [`references/erd.md`](references/erd.md); a generated example is in [`references/examples/data-model.md`](references/examples/data-model.md).
+It loads and validates the model with the `dvac-metadata` tool of the same plugin; its dependencies are installed on the first run. An invalid model is refused. What each element of the diagram means is in [`references/erd.md`](references/erd.md); a generated example is in [`references/examples/data-model.md`](references/examples/data-model.md).
 
 ## Workflow: generate → review
 
