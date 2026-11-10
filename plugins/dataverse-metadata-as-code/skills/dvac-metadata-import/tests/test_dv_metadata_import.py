@@ -86,7 +86,8 @@ class TestRoundTrip(ImportCase):
 
     def test_import_into_empty_model(self):
         code, out, _ = self.imp()
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 0)
+        self.assertIn("STATUS: changes-pending", out)
         self.assertFalse(self.model.exists(), "nothing is written without --write")
         for name in ("_meta.dv.metadata.yaml", "choices.dv.metadata.yaml",
                      "tables/prfx_crm_Customer.dv.metadata.yaml", "tables/prfx_crm_Order.dv.metadata.yaml"):
@@ -126,7 +127,8 @@ class TestAlign(ImportCase):
         self.edit("Entities/prfx_crm_Order/Entity.xml", 'description="Amount" languagecode', 'description="Net Amount" languagecode')
         customer_before = (self.model / "tables" / "prfx_crm_Customer.dv.metadata.yaml").read_text(encoding="utf-8")
         code, out, _ = self.imp()
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 0)
+        self.assertIn("STATUS: changes-pending", out)
         self.assertIn("~ tables/prfx_crm_Order.dv.metadata.yaml", out)
         self.assertIn("-    label: Amount", out)
         self.assertIn("+    label: Net Amount", out)
@@ -212,17 +214,18 @@ class TestErrors(ImportCase):
         self.assertFalse(self.model.exists())
 
     def test_not_an_unpacked_solution(self):
-        code, _, err = run("solution", str(self.tmp), "--model", str(self.model))
+        code, out, _ = run("solution", str(self.tmp), "--model", str(self.model))
         self.assertEqual(code, 1)
-        self.assertIn("not an unpacked solution", err)
+        self.assertIn("STATUS: error", out)
+        self.assertIn("not an unpacked solution", out)
 
     def test_two_solutions_that_disagree(self):
         other = self.tmp / "other"
         shutil.copytree(FIXTURE, other)
         self.edit("OptionSets/prfx_crm_choice_OrderStatus.xml", 'description="Draft"', 'description="New"', root=other)
-        code, _, err = self.imp(sols=[self.sol, other])
+        code, out, _ = self.imp(sols=[self.sol, other])
         self.assertEqual(code, 1)
-        self.assertIn("choice prfx_crm_choice_OrderStatus", err)
+        self.assertIn("choice prfx_crm_choice_OrderStatus", out)
 
     def test_two_solutions_add_columns(self):
         other = self.tmp / "other"

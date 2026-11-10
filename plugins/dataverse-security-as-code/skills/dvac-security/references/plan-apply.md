@@ -2,6 +2,17 @@
 
 `dv_security.py` works like Terraform without `destroy`. `plan` compares the model with the dev environment and saves the result. `apply` runs exactly that result.
 
+## Subcommands
+
+| Subcommand | Touches the server | Purpose |
+|---|---|---|
+| `doctor [model-dir]` | read | Checks deps, the `az` session, the dev guard, the root business unit and that the solution is unmanaged |
+| `validate <dir\|file>` | no | Structural (JSON Schema) + semantic checks (unique role names, duplicates) |
+| `plan <model-dir> [--json]` | read | Diff → `+ create` / `~ update` / `+ grant` / `~ depth` / `- revoke` / `! blocked` / `? unmanaged` |
+| `apply <model-dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. Never deletes a role. |
+| `adopt <model-dir> "<role name>" [--out <file>]` | read | Writes the role file of an existing role of the root business unit, with its complete privilege set. Refuses to overwrite a file or to describe a role twice. |
+
+
 ## Plan output
 
 ```
@@ -31,7 +42,21 @@ Summary: 1 role(s) to create, 1 to update, 1 grant(s), 1 level change(s), 1 revo
 1 revoke(s) need a double confirmation from the user.
 ```
 
-`--json` prints the same plan as JSON with a `plan_file` key. The `double_confirmation` list names every revoke.
+
+## Status footer
+
+Every `plan` and `apply` ends with a fixed footer, in plain text, for agents to act on without interpreting the rest:
+
+```
+STATUS: changes-pending        # no-changes | blocked | error | applied | stale-plan
+PLAN FILE: /repo/.dv-security/plan.json
+DOUBLE CONFIRMATION: none      # or one "  - <item>" line per item to confirm twice
+NEXT (only after the user confirms): python3 /…/scripts/dv_security.py apply /repo/dataverse/security --plan-file /repo/.dv-security/plan.json
+```
+
+- `NEXT` is the exact command to run after the user confirms, with absolute paths and the environment flags of the `plan` run.
+- On `STATUS: error` (or `stale-plan`, `blocked`), `REASON:` and `FIX:` replace `NEXT`. `FIX` names the next action — often a question for the user (dev URL, `az login --tenant …`).
+- `--json` prints the plan as JSON instead, for CI.
 
 ## Action kinds
 
@@ -73,11 +98,11 @@ Roles that are components of the solution but that no role file describes. The t
 
 ## Exit codes
 
-| Code | `plan` | `apply` / `validate` / `doctor` |
-|---|---|---|
-| 0 | no changes | success |
-| 1 | error, guard refusal, or blocked changes | failure / refusal |
-| 2 | changes pending | — |
+| Code | `plan` | `plan --detailed-exitcode` (CI) | `apply` / `validate` / `doctor` |
+|---|---|---|---|
+| 0 | plan computed (any `STATUS`) | no changes | success |
+| 1 | error or guard refusal | error, refusal, or blocked changes | failure / refusal |
+| 2 | — | changes pending | — |
 
 ## Common Dataverse errors during apply
 

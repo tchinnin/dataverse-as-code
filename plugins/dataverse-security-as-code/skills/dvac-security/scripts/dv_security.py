@@ -17,6 +17,8 @@ and reconciles it with a Dataverse **dev** environment, Terraform style:
                         blocked / unmanaged
     apply <model-dir> --plan-file <f>
                         execute exactly the saved plan (aborts if stale)
+    adopt <model-dir> "<role name>"
+                        write the role file of an existing role (read-only)
 
 A role file lists the role's complete privilege set: a privilege the role holds on
 the server but that the file doesn't list is planned as "- revoke" (double
@@ -39,10 +41,14 @@ Do not edit this script per project — edit the model files.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as _dt
 import hashlib
+import importlib.util
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -198,7 +204,7 @@ def _env_source(repo_root: Path, url=None, stage=None, tenant=None):
     env_path = repo_root / ".env.dev"
     if env_path.is_file():
         return str(env_path), read_dotenv(env_path)
-    raise GuardError("no dev environment given — " + ENV_HELP)
+    raise GuardError("no dev environment given → ask the user for the dev environment URL and tenant, then " + ENV_HELP)
 
 
 def dev_environment(repo_root: Path, url=None, stage=None, tenant=None):
@@ -361,6 +367,110 @@ def check_solution(api, solution):
         raise GuardError(f"solution '{solution}' is MANAGED in {api.url} — this is not a dev "
                          f"environment. Metadata changes are only allowed on an unmanaged dev solution.")
     return rows[0]["solutionid"]
+
+
+# --------------------------------------------------------------------------- #
+# Agent-facing runtime: dependencies, account, status footer
+# --------------------------------------------------------------------------- #
+DEPENDENCIES = ("yaml", "jsonschema")
+
+
+def venv_dir(requirements: Path) -> Path:
+    """Cached venv keyed by the requirement lines (comments ignored): tools with the same
+    dependencies share one venv."""
+    reqs = sorted(line.strip() for line in requirements.read_text(encoding="utf-8").splitlines()
+                  if line.strip() and not line.strip().startswith("#"))
+    digest = hashlib.sha256("\n".join(reqs).encode()).hexdigest()[:12]
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "dataverse-as-code" / f"venv-{digest}"
+
+
+def venv_python(venv: Path) -> Path:
+    return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def ensure_deps(requirements: Path):
+    """Re-run this command in a cached venv when PyYAML or jsonschema is missing.
+    The venv is created on the first run (uv when available, else venv + pip)."""
+    missing = [m for m in DEPENDENCIES if importlib.util.find_spec(m) is None]
+    if not missing or os.environ.get("DVAC_BOOTSTRAPPED"):
+        return
+    venv = venv_dir(requirements)
+    py = venv_python(venv)
+    if not py.is_file():
+        print(f"dataverse-as-code: installing {', '.join(missing)} into {venv} (first run only)",
+              file=sys.stderr, flush=True)
+        uv = shutil.which("uv")
+        steps = ([[uv, "venv", "--quiet", "--python", sys.executable, str(venv)],
+                  [uv, "pip", "install", "--quiet", "--python", str(py), "-r", str(requirements)]] if uv else
+                 [[sys.executable, "-m", "venv", str(venv)],
+                  [str(py), "-m", "pip", "install", "--quiet", "-r", str(requirements)]])
+        for step in steps:
+            proc = subprocess.run(step, capture_output=True, text=True)
+            if proc.returncode != 0:
+                shutil.rmtree(venv, ignore_errors=True)
+                print_status("error", reason="could not install the Python dependencies: "
+                             + (proc.stderr.strip() or proc.stdout.strip())[-400:],
+                             fix=f"{sys.executable} -m pip install -r {requirements}")
+                raise SystemExit(1)
+    env = dict(os.environ, DVAC_BOOTSTRAPPED="1")
+    argv = [str(py), str(Path(sys.argv[0]).resolve()), *sys.argv[1:]]
+    sys.stdout.flush()
+    if os.name == "nt":
+        raise SystemExit(subprocess.run(argv, env=env).returncode)
+    os.execve(str(py), argv, env)
+
+
+def token_account(token):
+    """'user (tenant id)' read from the access token — no extra az call."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (AttributeError, IndexError, ValueError):
+        return "?"
+    user = (claims.get("upn") or claims.get("unique_name") or claims.get("preferred_username")
+            or claims.get("appid") or "?")
+    return f"{user} (tenant {claims.get('tid', '?')})"
+
+
+def command_line(script, *args):
+    """The exact command to run a tool script, for the NEXT line."""
+    parts = ["python" if os.name == "nt" else "python3", str(Path(script).resolve()), *map(str, args)]
+    return subprocess.list2cmdline(parts) if os.name == "nt" else " ".join(shlex.quote(p) for p in parts)
+
+
+def print_status(status, reason=None, fix=None, plan_file=None, confirmations=None, next_cmd=None):
+    """Fixed footer that agents copy as is: STATUS first, then what to do next."""
+    lines = ["", f"STATUS: {status}"]
+    if reason:
+        lines.append(f"REASON: {reason}")
+    if fix:
+        lines.append(f"FIX: {fix}")
+    if plan_file:
+        lines.append(f"PLAN FILE: {plan_file}")
+    if confirmations is not None:
+        lines += ["DOUBLE CONFIRMATION:" + ("" if confirmations else " none")]
+        lines += [f"  - {c}" for c in confirmations]
+    if next_cmd:
+        lines.append(f"NEXT (only after the user confirms): {next_cmd}")
+    print("\n".join(lines), flush=True)
+
+
+def print_error(exc):
+    """STATUS: error footer for a refusal or a failure; the fix follows the '→' of the message."""
+    msg = str(exc.code if isinstance(exc, SystemExit) else exc).strip()
+    if msg.startswith("ERROR: "):
+        msg = msg[7:]
+    reason, _, fix = msg.partition("→")
+    if not fix:
+        fix = {GuardError: "change what the reason names, then re-run plan — never work around the guard",
+               ApiError: "see 'Common Dataverse errors' in references/plan-apply.md, then re-run plan",
+               urllib.error.URLError: "check the environment URL with the user and the network, then re-run plan",
+               }.get(type(exc), "fix what the reason names, then re-run plan")
+    print_status("error", reason=" ".join(reason.split()), fix=" ".join(fix.replace("run:", "").split()))
 
 
 
@@ -782,11 +892,12 @@ def _validated_model(model_arg):
     return model_dir, load_model(model_dir)
 
 
-def compute_plan(model_arg, strong=False, env_args=None):
+def compute_plan(model_arg, strong=False, env_args=None, api=None):
     model_dir, model = _validated_model(model_arg)
     env = dev_environment(find_repo_root(model_dir), **(env_args or {}))
-    api = Api(env, strong=strong)
-    account = az_json(["account", "show"])
+    if api is None:
+        api = Api(env, strong=strong)
+    api.strong = strong
     solution_id = check_solution(api, model["meta"]["solution"])
     state = read_server(api, model, solution_id)
     result = diff(model, state)
@@ -794,7 +905,7 @@ def compute_plan(model_arg, strong=False, env_args=None):
         "plan_version": PLAN_VERSION,
         "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "env_url": env["url"], "env_source": env["source"],
-        "az_account": f"{(account or {}).get('user', {}).get('name', '?')} (tenant {(account or {}).get('tenantId', '?')})",
+        "az_account": token_account(api.token()),
         "solution": model["meta"]["solution"],
         "model_dir": str(model_dir), "model_hash": _model_hash(model_dir),
         **result,
@@ -803,10 +914,23 @@ def compute_plan(model_arg, strong=False, env_args=None):
     return model_dir, model, env, api, state, plan
 
 
-def plan_exit_code(plan):
+def plan_status(plan):
     if plan["blocked"]:
-        return 1
-    return 2 if plan["actions"] else 0
+        return "blocked"
+    return "changes-pending" if plan["actions"] else "no-changes"
+
+
+def plan_exit_code(plan, detailed=False):
+    """0 once the plan is computed; with --detailed-exitcode (CI): 1 blocked, 2 pending."""
+    if not detailed:
+        return 0
+    return {"blocked": 1, "changes-pending": 2, "no-changes": 0}[plan_status(plan)]
+
+
+def env_flags(args):
+    """The environment flags of this run, repeated on the NEXT command."""
+    return [x for flag, v in (("--env-url", args.env_url), ("--stage", args.stage), ("--tenant", args.tenant))
+            if v for x in (flag, v)]
 
 
 def cmd_validate(args):
@@ -831,10 +955,12 @@ def cmd_plan(args):
         print(json.dumps({**plan, "plan_file": str(out)}, indent=2, ensure_ascii=False, default=str))
     else:
         render_plan(plan)
-        print(grey(f"\nPlan saved to {out}"))
-        if plan["actions"] and not plan["blocked"]:
-            print(grey(f"Apply it with: dv_security.py apply {args.model} --plan-file {out}"))
-    return plan_exit_code(plan)
+        status = plan_status(plan)
+        print_status(status, plan_file=out.resolve(), confirmations=plan["double_confirmation"],
+                     fix="change the model so nothing is blocked, then re-run plan" if status == "blocked" else None,
+                     next_cmd=command_line(__file__, "apply", model_dir, "--plan-file", out.resolve(),
+                                           *env_flags(args)) if status == "changes-pending" else None)
+    return plan_exit_code(plan, args.detailed_exitcode)
 
 
 def cmd_doctor(args):
@@ -967,18 +1093,20 @@ def _label(a):
 def cmd_apply(args):
     saved = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
     if saved.get("plan_version") != PLAN_VERSION:
-        print(red("ERROR: unsupported plan file version — re-run plan."), file=sys.stderr)
+        print_status("stale-plan", reason="the plan file was written by another version of the tool",
+                     fix="re-run plan, show the new plan to the user and get a new confirmation")
         return 1
     _model_dir, _model, _env, api, state, fresh = compute_plan(args.model, env_args=env_inputs(args))
     if _canonical(fresh) != _canonical(saved):
-        print(red("ERROR: stale plan — the model or the server changed since it was computed.\n"
-                  "Re-run plan, review it again, and apply the new plan file."), file=sys.stderr)
+        print_status("stale-plan", reason="the model or the environment changed since the plan was computed",
+                     fix="re-run plan, show the new plan to the user and get a new confirmation")
         return 1
     if fresh["blocked"]:
-        print(red("ERROR: the plan contains blocked changes — fix the model, re-plan, then apply."), file=sys.stderr)
+        print_status("blocked", reason="the plan contains blocked changes",
+                     fix="change the model so nothing is blocked, then re-run plan")
         return 1
     if not fresh["actions"]:
-        print(green("No changes to apply."))
+        print_status("no-changes")
         return 0
 
     api.strong = True
@@ -1000,15 +1128,91 @@ def cmd_apply(args):
 
     print(f"\n{done}/{len(fresh['actions'])} change(s) applied.")
     if failure:
-        print(red("Stopped at the first failure. Fix the cause, re-run plan, then apply the new plan."))
+        print_status("error", reason=f"stopped at the first failure: {failure}",
+                     fix="see 'Common Dataverse errors' in references/plan-apply.md, fix the cause, then re-run plan")
         return 1
-    after = compute_plan(args.model, strong=True, env_args=env_inputs(args))[-1]
+    after = compute_plan(args.model, strong=True, env_args=env_inputs(args), api=api)[-1]
     if after["actions"] or after["blocked"]:
         print(red("Post-apply check FAILED — the environment still differs from the model "
                   "after apply (read with Consistency: Strong). Remaining differences:"))
         render_plan(after)
+        print_status("error", reason="the environment still differs from the model after apply",
+                     fix="investigate the remaining differences above; do not retry blindly")
         return 1
     print(green("Post-apply plan is empty — the environment matches the model."))
+    print_status("applied")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# Adopt (an existing role → role file)
+# --------------------------------------------------------------------------- #
+TYPE_TO_VERB = {v: k for k, v in VERB_TO_TYPE.items()}
+
+
+def role_slug(name):
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "role"
+
+
+def adopt_document(role, privileges, table_privileges):
+    """The role file describing exactly what the role holds. table_privileges maps a
+    privilege id to (table logical name, verb); other privileges go under privileges:."""
+    doc = {"name": role["name"]}
+    if role["description"]:
+        doc["description"] = role["description"]
+    if role["member_inheritance"]:
+        doc["member_inheritance"] = role["member_inheritance"]
+    tables, named = {}, {}
+    for pid, p in privileges.items():
+        if pid in table_privileges:
+            table, verb = table_privileges[pid]
+            tables.setdefault(table, {})[verb] = p["depth"]
+        else:
+            named[p["name"]] = p["depth"]
+    order = list(VERB_TO_TYPE)
+    if tables:
+        doc["tables"] = {t: dict(sorted(v.items(), key=lambda kv: order.index(kv[0]))) for t, v in sorted(tables.items())}
+    if named:
+        doc["privileges"] = dict(sorted(named.items(), key=lambda kv: kv[0].lower()))
+    header = ("# Adopted from the dev environment by dv_security.py adopt.\n"
+              "# This file is the role's COMPLETE privilege set: a privilege it doesn't list is revoked by apply.\n")
+    return header + yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False, width=120)
+
+
+def cmd_adopt(args):
+    _require_yaml()
+    model_dir = find_model_dir(Path(args.model))
+    if model_dir is None:
+        raise SystemExit(f"ERROR: no {META_FILE} found at or above {args.model} "
+                         f"→ create {args.model}/{META_FILE} (version, solution) first")
+    key = role_key(args.name)
+    for role in load_model(model_dir)["roles"]:
+        if role_key(role["spec"].get("name")) == key:
+            raise SystemExit(f"ERROR: role '{args.name}' is already described in {role['file']}")
+    out = Path(args.out) if args.out else model_dir / ROLES_DIR / f"{role_slug(args.name)}{EXT}"
+    if out.exists():
+        raise SystemExit(f"ERROR: {out} already exists → pass --out with another file name")
+    env = dev_environment(find_repo_root(model_dir), **env_inputs(args))
+    api = Api(env)
+    bu = root_business_unit(api)
+    matches = [r for r in api.get_all("roles?$select=roleid,name,description,isinherited"
+                                      f"&$filter=_businessunitid_value eq {bu}") if role_key(r.get("name")) == key]
+    if len(matches) != 1:
+        raise SystemExit(f"ERROR: {len(matches)} role(s) named '{args.name}' in the root business unit of {env['url']}")
+    row = matches[0]
+    role = {"name": row["name"].strip(), "description": row.get("description") or "",
+            "member_inheritance": INHERITANCE_FROM_API.get(row.get("isinherited"))}
+    privileges = role_privileges(api, row["roleid"].lower())
+    table_privileges = {}
+    for entity in api.get_all("EntityDefinitions?$select=LogicalName,Privileges"):
+        for p in entity.get("Privileges") or []:
+            verb = TYPE_TO_VERB.get(p.get("PrivilegeType"))
+            if verb:
+                table_privileges[p["PrivilegeId"].lower()] = (entity["LogicalName"], verb)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(adopt_document(role, privileges, table_privileges), encoding="utf-8")
+    print(green(f"Written {out} — {len(privileges)} privilege(s)."))
+    print_status("written", next_cmd=command_line(__file__, "plan", model_dir.resolve(), *env_flags(args)))
     return 0
 
 
@@ -1027,23 +1231,30 @@ def main(argv=None):
     p.add_argument("model")
     p.add_argument("--out", help=f"plan file (default <repo-root>/{PLAN_DIR}/plan.json)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--detailed-exitcode", action="store_true",
+                   help="CI: exit 2 when changes are pending, 1 when blocked (default: 0 once computed)")
     add_env_args(p)
     p = sub.add_parser("apply", help="execute a saved plan (aborts if stale)")
     p.add_argument("model")
     p.add_argument("--plan-file", required=True)
     add_env_args(p)
+    p = sub.add_parser("adopt", help="write the role file of an existing role (read-only on the server)")
+    p.add_argument("model", help="model dir (holding _meta.dv.security.yaml)")
+    p.add_argument("name", help="role name in the root business unit")
+    p.add_argument("--out", help=f"role file (default <model>/{ROLES_DIR}/<slug>{EXT})")
+    add_env_args(p)
     args = ap.parse_args(argv)
+    ensure_deps(REQUIREMENTS)
     try:
-        return {"doctor": cmd_doctor, "validate": cmd_validate,
-                "plan": cmd_plan, "apply": cmd_apply}[args.cmd](args)
-    except GuardError as e:
-        print(red(f"REFUSED: {e}"), file=sys.stderr)
+        return {"doctor": cmd_doctor, "validate": cmd_validate, "plan": cmd_plan,
+                "apply": cmd_apply, "adopt": cmd_adopt}[args.cmd](args)
+    except (GuardError, ApiError, RuntimeError, urllib.error.URLError) as e:
+        print_error(e)
         return 1
-    except ApiError as e:
-        print(red(f"Dataverse error: {e}"), file=sys.stderr)
-        return 1
-    except RuntimeError as e:
-        print(red(f"ERROR: {e}"), file=sys.stderr)
+    except SystemExit as e:
+        if not isinstance(e.code, str):
+            raise
+        print_error(e)
         return 1
 
 

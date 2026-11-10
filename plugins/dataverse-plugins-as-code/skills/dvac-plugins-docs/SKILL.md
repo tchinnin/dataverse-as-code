@@ -11,11 +11,11 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Bash, Grep, Glob
+allowed-tools: Read, Write, Bash, Grep
 argument-hint: "[path] [--out <file>]"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 ## Official skill
@@ -24,7 +24,7 @@ The official `dataverse` plugin owns how plug-ins, steps and Custom APIs work (`
 
 ## Best practices
 
-This skill is convention-neutral: the document shows the registrations as written and only states platform facts (execution order, steps whose order is not guaranteed). It never judges step design. Where the documentation lives and how it is reviewed are the project's best practices: look for them (README, `AGENTS.md`, installed skills) and follow them. If there are none, suggest `docs/dataverse/plugins.md` (see [Suggested location](#suggested-location)) or ask the user for a path, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+This skill is convention-neutral: the document shows the registrations as written and only states platform facts (execution order, steps whose order is not guaranteed). It never judges step design. Where the documentation lives and how it is reviewed are the project's best practices: follow the ones already in your context (the project's instructions, loaded skills) — don't search for them. If there are none, suggest `docs/dataverse/plugins.md` (see [Suggested location](#suggested-location)) or ask the user for a path, and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
 
 ## Connection
 
@@ -60,8 +60,10 @@ The document is Markdown, like the ERD: it holds several diagrams and the detail
 One tool, `scripts/dv_plugin_docs.py`, with one subcommand:
 
 ```sh
-python3 <this-skill>/scripts/dv_plugin_docs.py doc <path> [--out <file>] [--check] [--tables <a,b>]
+python3 <base directory>/scripts/dv_plugin_docs.py doc <path> [--out <file>] [--check] [--tables <a,b>]
 ```
+
+`<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`); never search the disk for the script. The script installs its own Python dependencies on its first run.
 
 | Option | Effect |
 |---|---|
@@ -71,7 +73,7 @@ python3 <this-skill>/scripts/dv_plugin_docs.py doc <path> [--out <file>] [--chec
 
 The document has three parts: the source files, the **execution pipeline** (one Mermaid diagram and one table per table × message) and the **Custom APIs** (a diagram of bound tables → APIs → plug-in classes, then each signature). What each element means is in [`references/doc.md`](references/doc.md); a generated example is in [`references/examples/plugins.md`](references/examples/plugins.md).
 
-It loads and validates the files with the `dvac-plugins` tool of the same plugin, so install that skill's requirements (`pip install -r <plugin>/skills/dvac-plugins/scripts/requirements.txt`, inside a venv). An invalid file is refused; a missing build output is not needed.
+It loads and validates the files with the `dvac-plugins` tool of the same plugin; its dependencies are installed on the first run. An invalid file is refused; a missing build output is not needed.
 
 ## Workflow: generate → review
 

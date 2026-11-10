@@ -11,16 +11,39 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
+allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "2.0.5"
+  version: "3.0.0"
 ---
+
+## Run
+
+Every step is one command; your only job is the YAML. `DV` means `python3 <base directory>/scripts/dv_plugin.py`, where `<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`). **Never search the disk for the script** — other copies may be stale. The script installs its own Python dependencies on its first run.
+
+1. Edit `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` ([format](references/format.md)). When the plug-in code changed, build it with the project's build command first.
+2. Run `DV plan plugins/<PluginName>`, adding `--env-url <url> --stage dev [--tenant <id>]` when the user gave the environment.
+3. Show the output to the user **unchanged**, then act on its `STATUS:` line:
+
+| STATUS | Do |
+|---|---|
+| `changes-pending` | Ask the user to confirm the change list — twice for each `DOUBLE CONFIRMATION` line. Then run the `NEXT` line exactly as printed. |
+| `no-changes` | Done. |
+| `blocked` | Fix the YAML ([blocked changes](references/plan-apply.md)), back to step 2. |
+| `error` | Do what `FIX` says (often: ask the user something). Don't investigate further. |
+
+4. After `apply`: `applied` → done, remind the user to commit the `.dv.plugin.yaml` (including the `id` the tool recorded). `stale-plan` → back to step 2. `error` → show `REASON` and `FIX`, stop.
+
+To adopt a project registered by hand, run `DV export --solution <s> --package <name> --out plugins/<PluginName>/<PluginName>.dv.plugin.yaml` first — never write existing registrations from memory.
+
+Not in this loop: `validate` (plan validates; in Claude Code the hook also validates on save), `doctor` (only to diagnose an `error`), `--json`, and any other read of Dataverse or ad-hoc script — the plan is the only read of the environment.
+
+**Large changes.** Delegate the YAML to the `dvac-plugins-planner` agent. Its prompt must hold `DV=<the absolute command>`, the request and the project conventions to apply. It returns the plan output; you run steps 3–4.
 
 ## Official skill
 
-No official Microsoft skill covers plug-in registration. Two parts of the official `dataverse` plugin are relevant, so load both before this skill:
+No official Microsoft skill covers plug-in registration. Two parts of the official `dataverse` plugin are relevant, load them only when you need that know-how:
 
 - `dataverse:dv-overview` states the rule this tool implements: the first registration goes through the Web API, later updates through `pac plugin push`.
 - `dataverse:dv-connect` owns PAC CLI authentication and the privileges registration needs.
@@ -31,7 +54,7 @@ If the `dataverse` plugin is not installed, **strongly recommend the user instal
 
 This skill defines the registration format and the tooling, **not** how to design or build plug-ins. Project structure, base classes, step and image design, Custom API design, versioning and build are the project's best practices. The validator only enforces Dataverse platform rules (publisher prefix, stages, images, Custom API constraints) and checks that the registered classes exist.
 
-Before writing the model, look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. If there are none, work from the user's request and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+Apply the conventions already in your context (the project's instructions, loaded skills) — don't search for them. If there are none, follow the user's request and the format rules; best-practice skills such as the `powerplatform-bestpractices` marketplace (`ppbp-*`) can be added.
 
 ## Connection
 
@@ -39,7 +62,6 @@ Before writing the model, look for the project's own best practices (README, `AG
 - If none is available, ask the user for the URL and tenant. Suggest a committed `.env.dev` as a convenient option (for example created by `ppbp-init`), never require it.
 - **The Web API uses the Azure CLI token** (`az login`, with `--tenant <TENANT_ID>` when the account spans several tenants).
 - **`pac plugin push` uses the active PAC CLI profile.** The tool always passes it the dev URL explicitly.
-- Before any change, confirm the target URL, the `az` account and the pac profile with the user.
 
 ## Repository layout
 
@@ -58,41 +80,17 @@ Before writing the model, look for the project's own best practices (README, `AG
 
 ## What this skill adds
 
-- **One declarative model per plug-in project.** `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` sits next to the `.csproj` and is the source of truth for:
-  - the plug-in package (or assembly)
-  - its steps and step images
-  - the Custom APIs it implements, with their request parameters and response properties
-- **One tool**, `scripts/dv_plugin.py`:
-
-| Subcommand | Touches the server | Purpose |
-|---|---|---|
-| `doctor [path]` | read | Checks deps, the `az` session, the `pac` profile, the dev guard, each solution (unmanaged) and the build output |
-| `validate <file\|dir>` | no | Structural (JSON Schema) and semantic checks, plus a scan of the project's `.cs` files for the plug-in classes |
-| `plan <file\|dir> [--json]` | read | Diff: `+ create`, `~ update` (`field: old → new`), `↑ push`, `- delete`, `! blocked`, `? unmanaged` |
-| `apply <file\|dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. |
-| `export --solution <s> --package <name>` (or `--assembly`) | read | Prints the YAML of existing registrations, to adopt a project registered by hand |
-
-- **A PostToolUse hook** (Claude Code). It runs `validate` after every edit to a `*.dv.plugin.yaml` file. On GitHub Copilot, run `validate` explicitly.
-- **A planner agent**, `dvac-plugins-planner`, that runs the whole loop with a user confirmation gate.
-
-Run the script from the plugin's skill folder: `python3 <this-skill>/scripts/dv_plugin.py …`. Install its dependencies first, inside a venv, with `pip install -r <this-skill>/scripts/requirements.txt`.
+A declarative model (`plugins/<PluginName>/<PluginName>.dv.plugin.yaml`), one tool (`scripts/dv_plugin.py`; every subcommand is in [`references/plan-apply.md`](references/plan-apply.md#subcommands)), a validation hook for Claude Code, and an optional planner agent for large YAML changes.
 
 ## Workflow: plan → confirm → apply
 
-Delegate registration changes to the **`dvac-plugins-planner`** agent. It runs in two invocations:
+The loop is the one in [Run](#run). The user confirms the target (environment, `az` account, solution) and the exact change list, and **twice** each `DOUBLE CONFIRMATION` line:
 
-1. **Planning run.** The agent:
-   - builds the project if needed
-   - edits the YAML and validates it
-   - runs `plan`
-   - returns the target, the change list and the items that need double confirmation
-2. **The main thread shows that plan to the user.** Ask for explicit confirmation of the environment and of the exact change list. Ask **twice** for each of these items:
-   - `+ create package` or `+ create assembly` — the name is permanent
-   - each `- delete` of a step or an image — the logic stops running
-   - `+ create customapi` — binding, function/action and allowed steps are permanent
-3. **Apply run.** Re-invoke the agent with `approved: <plan file>`. It runs `apply`, then checks that the follow-up plan is empty.
+- `create package` or `create assembly` — the name is permanent
+- each `delete` of a step or an image — the logic stops running
+- `create customapi` — binding, function/action and allowed steps are permanent
 
-Never run `apply` without a plan the user has just seen. Never apply a plan that contains blocked items.
+Never run `apply` without a plan the user has just seen, and never edit the `NEXT` line.
 
 ## Model file
 
@@ -164,10 +162,6 @@ Revert the YAML, or create a new Custom API and migrate its callers. The list is
 
 Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for every Custom API that has a plug-in type. The tool ignores it: never declare it in `steps:` (`validate` refuses `main-operation`), and never delete it. See [`references/plan-apply.md`](references/plan-apply.md).
 
-## Common issue: stale plan
-
-`apply` recomputes the plan and aborts if it differs from the saved file. This happens when the model, the build output or the server changed after `plan`. Re-run `plan`, get the user's confirmation again, and apply the new file.
-
 ## Anti-patterns (DO NOT DO)
 
 | Anti-pattern | Correct approach |
@@ -182,7 +176,7 @@ Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for ev
 
 ## Skill boundaries
 
-- Running a registration change end to end → agent `dvac-plugins-planner`
+- Large registration changes → agent `dvac-plugins-planner` (optional; apply stays in the main thread)
 - Documentation of the execution pipeline and the Custom APIs → `dvac-plugins-docs`
 - Registrations from an unpacked solution (adoption, realignment) → `dvac-plugins-import`
 - Dataverse schema as code → `dvac-metadata`
@@ -190,3 +184,9 @@ Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for ev
 - PAC CLI authentication, connection diagnostics → `dataverse:dv-connect`
 - Solution creation, export → `dataverse:dv-solution`
 - Promotion to UAT/prod → the project's ALM pipeline
+
+## Migration from 2.x
+
+- `plan` exits 0 once the plan is computed and ends with a `STATUS:` footer. CI that relied on exit code 2 must pass `--detailed-exitcode`.
+- The planner agent no longer applies (`approved: <plan file>` is gone): the main thread runs the printed `NEXT` command.
+- The tool installs its Python dependencies in a cached venv on its first run.

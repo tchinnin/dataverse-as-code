@@ -64,7 +64,7 @@ Each privilege accepts only some levels (its `canbebasic`, `canbelocal`, `canbed
 
 A role file lists **every** privilege the role holds. Anything else the role holds in dev is planned as `- revoke`. Consequences:
 
-- To bring an existing role under the model, describe all its current privileges first, then plan: the plan must be empty before you change anything.
+- To bring an existing role under the model, run `dv_security.py adopt <model-dir> "<role name>"`: it writes the role file with every privilege the role holds (read-only on the server), so the next plan is empty. Then make your change.
 - A new role is created with exactly the listed privileges (`ReplacePrivilegesRole`), so the default privileges Dataverse gives a new role are not kept unless listed.
 - To open a model-driven app, users usually need privileges on system tables besides the project's own. The official skill `dataverse:dv-security` owns that list; write them in the role file like any other privilege.
 - The same privilege may not be declared twice (for example `account.read` in `tables` and `prvReadAccount` in `privileges`): the plan blocks it.

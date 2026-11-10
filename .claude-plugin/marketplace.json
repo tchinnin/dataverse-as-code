@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with your environments through plan → confirm → apply",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "plugins": [
     {

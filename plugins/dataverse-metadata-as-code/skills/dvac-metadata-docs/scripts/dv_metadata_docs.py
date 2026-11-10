@@ -195,6 +195,7 @@ def main(argv=None):
     p.add_argument("--no-columns", action="store_true", help="tables and relationships only")
     p.add_argument("--lang", type=int, help="LCID of the labels (default: the model's base language)")
     args = ap.parse_args(argv)
+    dvm.ensure_deps(dvm.REQUIREMENTS)
     return {"erd": cmd_erd}[args.cmd](args)
 
 

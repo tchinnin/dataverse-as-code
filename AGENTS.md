@@ -37,8 +37,8 @@ Rules:
 
 - **Additive only.** A `dvac-*` skill never restates what an official skill specifies. Point to it instead: *"The official skill owns <topic> — load it."*
 - **Convention-neutral.** Validators, schemas, skills and agents enforce only Dataverse platform rules, tool rules (file identity, references) and safety gates (irreversible or destructive changes). Never encode a naming or design convention — no suffix rules, no required descriptions, no "prefer X" warnings. Samples may illustrate one scheme, labelled as an example.
-- **Best practices at runtime.** Skills and agents look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. When there are none, they may suggest a best-practice marketplace — `powerplatform-bestpractices` is the one we recommend — but must work without it.
-- **Runtime checks.** Every skill and agent checks that the official `dataverse` plugin is available and strongly recommends installing it if not.
+- **Best practices at runtime.** Skills and agents apply the conventions already in their context (the project's instructions, loaded skills, or what the caller passes to an agent) and never search for them. When there are none, they may suggest a best-practice marketplace — `powerplatform-bestpractices` is the one we recommend — but must work without it.
+- **Official plugin.** Every skill strongly recommends installing the official `dataverse` plugin, and loads an official skill only when it needs know-how the format doesn't give. No skill or agent spends a step checking that it is installed.
 
 ## Plugin Architecture
 
@@ -66,7 +66,7 @@ marketplace: dataverse-as-code
             └── tests/                    ← required, with fixtures/ (a synthetic unpacked solution)
 ```
 
-One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. `dataverse-security-as-code` next to `dataverse-metadata-as-code`).
+One plugin = one model family = **one skill** (`dvac-<domain>`) + its optional planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. `dataverse-security-as-code` next to `dataverse-metadata-as-code`).
 
 ### Documentation skills
 
@@ -93,7 +93,18 @@ A plugin may add one import skill, `dvac-<domain>-import`, that regenerates or a
 
 ### Skills
 
-Required sections: `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, an import skill `## Workflow: import → review → write → plan`; the `## Connection` of both states that they need none.
+Required sections: `## Run` (first, see below), `## Official skill`, `## Best practices` (states that the skill is convention-neutral and how to pick up the project's practices), `## Connection`, `## Repository layout` (only the as-code files the tool owns), `## Workflow: plan → confirm → apply`, `## Safety model`, `## Anti-patterns (DO NOT DO)` (Wrong/Correct table), `## Skill boundaries`. A documentation skill has `## Workflow: generate → review` instead, an import skill `## Workflow: import → review → write → plan`; the `## Connection` of both states that they need none.
+
+### Deterministic run
+
+The agent's only job is the YAML; every other step is one command with a fixed output. This is what keeps runs cheap and predictable, on GitHub Copilot first and on Claude Code.
+
+- **The script path comes from the loaded skill.** Commands are written `python3 <base directory>/scripts/…`, where `<base directory>` is the absolute path the agent receives when the skill loads (`Base directory for this skill: …` on Copilot CLI, VS Code and Claude Code). No `${…}` variable in SKILL.md: Copilot doesn't expand them. Never tell an agent to search the disk (no `Glob` in `allowed-tools` or `tools`): stale copies exist.
+- **Dependencies install themselves.** `ensure_deps()` (shared block) re-runs the script in a cached venv when PyYAML or jsonschema is missing. Skills never ask for `pip install`.
+- **The loop is `plan` → show → confirm → `NEXT`.** `plan` validates and checks the guard, so `validate` and `doctor` are not steps of the loop (`doctor` diagnoses an `error`). The plan is the agent's only read of the environment: no ad-hoc queries or scripts.
+- **Fixed footer.** `plan`, `apply` and `import` end with `STATUS:` (`changes-pending`, `no-changes`, `blocked`, `error`, `applied`, `stale-plan`, `refused`, `written`) and, as relevant, `REASON:`, `FIX:`, `PLAN FILE:`, `DOUBLE CONFIRMATION:` and `NEXT (only after the user confirms): <exact command>`. The script computes the double-confirmation list; the agent copies the output unchanged and never rebuilds a command.
+- **Exit codes.** `plan` exits 0 once computed (VS Code shows any non-zero code as a failure); `--detailed-exitcode` gives CI 2 = pending, 1 = blocked.
+- **Writing rule.** No instruction may ask an agent to search, guess or reformat. When a step needs judgement, the script should print the answer instead (a `FIX:` line, an `adopt`/`export` command).
 
 Implementation pitfalls use the two-level pattern: a short `## Common issue: <topic>` section in SKILL.md (2–3 sentences) pointing to the full treatment in `references/<topic>.md`.
 
@@ -101,7 +112,7 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 - File `agents/dvac-<domain>-planner.agent.md`. The `.agent.md` suffix is what GitHub Copilot CLI expects; Claude Code takes the name from frontmatter.
 - Frontmatter: `name` (= file name without `.agent.md`), `description` (what it does plus when to use it), `tools`, `model: sonnet`.
-- An agent can't talk to the user. It works in two invocations: a planning run that returns the plan and stops, and an apply run that starts only on `approved: <plan file>`. Never apply a change the user hasn't confirmed. Outside dev, the data agent's apply run also needs the values the user typed (`confirm-url`, `confirm-deletes`); an agent never fills them in.
+- The planner agent is **optional**: it writes the YAML for large changes and runs `plan`, then returns the files it changed and the plan output unchanged. It never applies — the main thread confirms with the user and runs the `NEXT` command. Copilot gives a sub-agent only its prompt, so the caller passes `DV=<absolute command>`, the request and the conventions to apply; without `DV=` the agent asks, it never searches. Outside dev the values the user typed (`--confirm-url`, `--confirm-deletes`) are put in by the main thread; an agent never fills them in.
 
 ### Scripts
 
@@ -111,7 +122,7 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 - **Customization tools are dev-only** (`dv_metadata.py`, `dv_plugin.py`, `dv_security.py`): refuse to run unless the stage is declared `dev`, the URL differs from `.env.uat`/`.env.prod` when those files exist, and the target solution exists and is unmanaged. UAT and prod receive customizations only through the managed solution.
 - **Data tools target a named stage** (`dv_data.py`): data is not solution-aware, so the tool runs against dev, UAT or prod. `--stage` is always required and never defaults; the source must declare that stage; the URL must differ from every other `.env.<stage>` file; the organization id is pinned in the plan and checked at apply. Outside `dev`, `apply` refuses unless the user — never the agent — typed the environment URL (`--confirm-url`) and, when the plan deletes rows, their count (`--confirm-deletes`).
 - There is never a flag to override a guard.
-- **Shared code is copied, not imported** — plugins install independently. The dev guard and Web API client in `dv_plugin.py` and `dv_security.py`, and the Web API client in `dv_data.py`, must stay identical to `dv_metadata.py` (except the names allowed by each `TestSharedBlock`). Change every copy in the same commit.
+- **Shared code is copied, not imported** — plugins install independently. The dev guard, the Web API client and the agent-facing runtime (`ensure_deps`, `print_status`, `print_error`, `command_line`, `token_account`) in `dv_plugin.py` and `dv_security.py`, and the Web API client and runtime in `dv_data.py`, must stay identical to `dv_metadata.py` (except the names allowed by each `TestSharedBlock`). Change every copy in the same commit.
 - Never destructive by default. Any delete the tool can perform must be listed in the skill's safety model and require double confirmation.
 - Tools never write GUIDs into model files unless the format has no other identity. `dv_data.py` identifies rows by alternate key and never writes the model.
 
@@ -119,11 +130,12 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 - `hooks/hooks.json` in Claude Code format; reference scripts with `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/…`.
 - A hook exits immediately (code 0) for files it doesn't own and never blocks a developer whose environment isn't set up.
-- Copilot CLI's hook format is not guaranteed to match, so a skill never *depends* on its hook: the skill and the agent also run `validate` explicitly.
+- Copilot CLI's hook format is not guaranteed to match, so a skill never *depends* on its hook: `plan` validates the model before anything else.
+- When the dependencies are missing, the hook reuses the tool's cached venv if it exists; it never creates it (time limit).
 
 ### Compatibility
 
-The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) and the plan file format are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
+The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) the plan file format, and the `plan` exit codes and status footer are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
 
 ## Skill Authoring Standards
 

@@ -9,6 +9,8 @@ or edits a *.dv.security.yaml file.
 * Missing pyyaml/jsonschema: one-line notice, exit 0 — never blocks a developer.
 """
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,8 +18,9 @@ EXT = ".dv.security.yaml"
 
 
 def main():
+    raw = sys.stdin.read()
     try:
-        payload = json.load(sys.stdin)
+        payload = json.loads(raw)
     except ValueError:
         return 0
     tool_input = payload.get("tool_input") or {}
@@ -29,6 +32,14 @@ def main():
     import dv_security as dv  # noqa: E402
 
     if dv.yaml is None or dv.jsonschema is None:
+        # The tool installs its dependencies in a cached venv on its first run: reuse it.
+        py = dv.venv_python(dv.venv_dir(dv.REQUIREMENTS))
+        if py.is_file() and not os.environ.get("DVAC_BOOTSTRAPPED"):
+            proc = subprocess.run([str(py), str(Path(__file__).resolve())], input=raw, capture_output=True,
+                                  text=True, env=dict(os.environ, DVAC_BOOTSTRAPPED="1"))
+            sys.stdout.write(proc.stdout)
+            sys.stderr.write(proc.stderr)
+            return proc.returncode
         print(f"dv-security hook: pyyaml/jsonschema not installed — validation skipped "
               f"(pip install -r {dv.REQUIREMENTS})", file=sys.stderr)
         return 0

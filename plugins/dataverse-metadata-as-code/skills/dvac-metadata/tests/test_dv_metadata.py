@@ -823,5 +823,129 @@ class TestHook(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class TestRuntime(unittest.TestCase):
+    """Agent-facing runtime: dependency bootstrap, account, STATUS footer, exit codes."""
+
+    def capture(self, fn, *a, **kw):
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = fn(*a, **kw)
+        return result, out.getvalue()
+
+    def test_footer_lists_status_plan_file_confirmations_and_next(self):
+        _, out = self.capture(dv.print_status, "changes-pending", plan_file="/r/.dv-metadata/plan.json",
+                              confirmations=["create organization-owned table X"], next_cmd="python3 /t.py apply")
+        self.assertEqual(out.splitlines(), [
+            "", "STATUS: changes-pending", "PLAN FILE: /r/.dv-metadata/plan.json", "DOUBLE CONFIRMATION:",
+            "  - create organization-owned table X", "NEXT (only after the user confirms): python3 /t.py apply"])
+
+    def test_footer_without_confirmations_says_none(self):
+        _, out = self.capture(dv.print_status, "no-changes", confirmations=[])
+        self.assertIn("DOUBLE CONFIRMATION: none", out)
+
+    def test_error_footer_takes_the_fix_after_the_arrow(self):
+        _, out = self.capture(dv.print_error, dv.GuardError("az account failed: boom\n  → run: az login --tenant T"))
+        self.assertIn("STATUS: error", out)
+        self.assertIn("REASON: az account failed: boom", out)
+        self.assertIn("FIX: az login --tenant T", out)
+
+    def test_error_footer_for_a_model_error(self):
+        _, out = self.capture(dv.print_error, SystemExit("ERROR: the model is invalid (2 error(s))"))
+        self.assertIn("REASON: the model is invalid (2 error(s))", out)
+
+    def test_token_account_reads_the_claims(self):
+        import base64
+        claims = base64.urlsafe_b64encode(json.dumps({"upn": "dev@contoso.com", "tid": "t1"}).encode()).decode()
+        self.assertEqual(dv.token_account(f"h.{claims.rstrip('=')}.s"), "dev@contoso.com (tenant t1)")
+        self.assertEqual(dv.token_account("not-a-jwt"), "?")
+
+    def test_plan_exit_code(self):
+        pending, blocked = {"actions": [1], "blocked": []}, {"actions": [], "blocked": [1]}
+        self.assertEqual((dv.plan_exit_code(pending), dv.plan_exit_code(blocked)), (0, 0))
+        self.assertEqual((dv.plan_exit_code(pending, True), dv.plan_exit_code(blocked, True),
+                          dv.plan_exit_code({"actions": [], "blocked": []}, True)), (2, 1, 0))
+
+    def test_command_line_is_absolute_and_quoted(self):
+        cmd = dv.command_line("dv_metadata.py", "apply", "/a b/model")
+        self.assertTrue(cmd.startswith("python3 /") or cmd.startswith("python "))
+        self.assertIn("'/a b/model'" if os.name != "nt" else '"/a b/model"', cmd)
+
+    def test_venv_is_shared_by_tools_with_the_same_requirements(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            a, b = tmp / "a.txt", tmp / "b.txt"
+            a.write_text("# tool a\npyyaml>=6.0\njsonschema>=4.0\n")
+            b.write_text("# tool b\njsonschema>=4.0\npyyaml>=6.0\n")
+            self.assertEqual(dv.venv_dir(a), dv.venv_dir(b))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_ensure_deps_does_nothing_when_installed(self):
+        with mock.patch.object(dv.subprocess, "run") as run, mock.patch.object(dv.os, "execve") as execve:
+            dv.ensure_deps(dv.REQUIREMENTS)
+        run.assert_not_called()
+        execve.assert_not_called()
+
+    def test_ensure_deps_creates_the_venv_then_reruns(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            calls = []
+            fake = mock.Mock(returncode=0, stdout="", stderr="")
+            env = {k: v for k, v in os.environ.items() if k != "DVAC_BOOTSTRAPPED"}
+            with mock.patch.dict(os.environ, dict(env, XDG_CACHE_HOME=str(tmp), LOCALAPPDATA=str(tmp)), clear=True), \
+                    mock.patch.object(dv.importlib.util, "find_spec", return_value=None), \
+                    mock.patch.object(dv.shutil, "which", return_value=None), \
+                    mock.patch.object(dv.subprocess, "run", side_effect=lambda c, **k: calls.append(c) or fake), \
+                    mock.patch.object(dv.os, "execve") as execve, mock.patch.object(dv.os, "name", "posix"), \
+                    contextlib_quiet():
+                dv.ensure_deps(dv.REQUIREMENTS)
+            self.assertEqual(calls[0][1:3], ["-m", "venv"])
+            self.assertIn("pip", calls[1])
+            self.assertEqual(execve.call_args[0][2]["DVAC_BOOTSTRAPPED"], "1")
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_plan_prints_the_footer_and_exits_0(self):
+        plan = {"actions": [{"op": "create"}], "blocked": [], "unmanaged": [], "double_confirmation": [],
+                "env_url": "https://a-dev.crm4.dynamics.com", "env_source": "flags", "solution": "s"}
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with mock.patch.object(dv, "compute_plan", return_value=(tmp, None, None, None, plan)), \
+                    mock.patch.object(dv, "render_plan"):
+                code, out = self.capture(dv.main, ["plan", str(tmp), "--out", str(tmp / "p.json"),
+                                                   "--env-url", "https://a-dev.crm4.dynamics.com", "--stage", "dev"])
+            self.assertEqual(code, 0)
+            self.assertIn("STATUS: changes-pending", out)
+            self.assertIn(f"PLAN FILE: {(tmp / 'p.json').resolve()}", out)
+            self.assertRegex(out, r"NEXT \(only after the user confirms\): python3? \S*dv_metadata\.py apply "
+                                  r".* --plan-file .* --env-url https://a-dev\.crm4\.dynamics\.com --stage dev")
+            with mock.patch.object(dv, "compute_plan", return_value=(tmp, None, None, None, plan)), \
+                    mock.patch.object(dv, "render_plan"):
+                code, _ = self.capture(dv.main, ["plan", str(tmp), "--out", str(tmp / "p.json"), "--detailed-exitcode"])
+            self.assertEqual(code, 2)
+        finally:
+            shutil.rmtree(tmp)
+
+
+def contextlib_quiet():
+    import contextlib, io
+    return contextlib.redirect_stderr(io.StringIO())
+
+
+class TestDoubleConfirmation(unittest.TestCase):
+    def test_org_table_and_cascade_delete(self):
+        model = load_samples()
+        order = next(t for t in model["tables"] if t["key"] == "prfx_crm_Order")
+        order["ownership"] = "org"
+        lookup = next(c for c, spec in order["columns"].items() if spec["type"] == "lookup")
+        order["columns"][lookup]["cascade"] = "parental"
+        acts = [{"op": "create", "kind": "table", "name": "prfx_crm_Order"},
+                {"op": "create", "kind": "lookup", "name": lookup, "table": "prfx_crm_Order"}]
+        self.assertEqual(dv.double_confirmation(acts, model), [
+            "create organization-owned table prfx_crm_Order (ownership is permanent)",
+            f"lookup prfx_crm_Order.{lookup} deletes child rows with the parent (cascade delete)"])
+
+
 if __name__ == "__main__":
     unittest.main()

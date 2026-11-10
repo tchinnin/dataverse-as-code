@@ -387,7 +387,9 @@ class TestSharedBlock(unittest.TestCase):
     SHARED = ("GuardError", "ApiError", "_c", "green", "yellow", "red", "grey", "bold", "Report",
               "ENV_KEYS", "ENV_HELP", "find_repo_root", "read_dotenv", "_norm_url", "add_env_args",
               "env_inputs", "_env_source", "dev_environment", "az_path", "az_json",
-              "_debug", "Api", "check_solution")
+              "_debug", "Api", "check_solution",
+              "DEPENDENCIES", "venv_dir", "venv_python", "ensure_deps", "token_account", "command_line",
+              "print_status", "print_error")
     ALLOWED = {"dvac-security": "dvac-metadata", "DV_SECURITY_DEBUG": "DV_METADATA_DEBUG"}
 
     def test_shared_code_is_identical(self):
@@ -433,6 +435,66 @@ class TestHook(unittest.TestCase):
             self.assertIn("everyone", res.stderr)
         finally:
             shutil.rmtree(tmp)
+
+
+class TestAdopt(unittest.TestCase):
+    RESPONSES = {
+        "businessunits": [{"businessunitid": "BU"}],
+        "roles?": [{"roleid": "R1", "name": "Order Clerk", "description": "Clerks", "isinherited": 1,
+                    "ismanaged": False, "iscustomizable": {"Value": True}}],
+        "roles(r1)/Microsoft.Dynamics.CRM.RetrieveRolePrivilegesRole()": {"RolePrivileges": [
+            {"PrivilegeId": "P1", "PrivilegeName": "prvReadAccount", "Depth": "Global"},
+            {"PrivilegeId": "P2", "PrivilegeName": "prvWriteAccount", "Depth": "Basic"},
+            {"PrivilegeId": "P9", "PrivilegeName": "prvExportToExcel", "Depth": "Global"}]},
+        "EntityDefinitions?": [{"LogicalName": "account", "Privileges": [
+            {"PrivilegeType": "Read", "PrivilegeId": "P1", "Name": "prvReadAccount"},
+            {"PrivilegeType": "Write", "PrivilegeId": "P2", "Name": "prvWriteAccount"}]}],
+        "EntityDefinitions(LogicalName='account')": {"Privileges": [
+            {"PrivilegeType": "Read", "PrivilegeId": "P1", "Name": "prvReadAccount", "CanBeBasic": True,
+             "CanBeLocal": True, "CanBeDeep": True, "CanBeGlobal": True},
+            {"PrivilegeType": "Write", "PrivilegeId": "P2", "Name": "prvWriteAccount", "CanBeBasic": True,
+             "CanBeLocal": True, "CanBeDeep": True, "CanBeGlobal": True}]},
+        "privileges?": [{"privilegeid": "P9", "name": "prvExportToExcel", "canbeglobal": True}],
+        "solutioncomponents": [{"objectid": "R1"}],
+    }
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.model = self.tmp / "dataverse" / "security"
+        self.model.mkdir(parents=True)
+        shutil.copy(SAMPLES / "_meta.dv.security.yaml", self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def adopt(self, *extra):
+        import contextlib, io
+        api = FakeApi(self.RESPONSES)
+        out = io.StringIO()
+        with mock.patch.object(dv, "Api", return_value=api), contextlib.redirect_stdout(out):
+            code = dv.main(["adopt", str(self.model), "order clerk", "--env-url", "https://a-dev.crm4.dynamics.com",
+                            "--stage", "dev", *extra])
+        return code, out.getvalue()
+
+    def test_adopted_file_plans_empty(self):
+        code, out = self.adopt()
+        self.assertEqual(code, 0, out)
+        self.assertIn("STATUS: written", out)
+        f = self.model / "roles" / "order-clerk.dv.security.yaml"
+        self.assertEqual(dv.load_yaml(f), {
+            "name": "Order Clerk", "description": "Clerks", "member_inheritance": "direct_and_team",
+            "tables": {"account": {"read": "organization", "write": "user"}},
+            "privileges": {"prvExportToExcel": "organization"}})
+        self.assertEqual(dv.validate_model(self.model).errors, [])
+        model = dv.load_model(self.model)
+        plan = dv.diff(model, dv.read_server(FakeApi(self.RESPONSES), model, "SOL"))
+        self.assertEqual((plan["actions"], plan["blocked"]), ([], []))
+
+    def test_refuses_to_overwrite(self):
+        self.adopt()
+        code, out = self.adopt()
+        self.assertEqual(code, 1)
+        self.assertIn("already described", out)
 
 
 if __name__ == "__main__":

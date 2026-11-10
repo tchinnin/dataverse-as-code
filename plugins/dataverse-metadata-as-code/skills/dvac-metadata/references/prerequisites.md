@@ -4,11 +4,11 @@
 
 ## 1. Python + dependencies
 
-Python ≥ 3.9 in a virtual environment:
+Python ≥ 3.9. Nothing to install by hand: when `pyyaml` or `jsonschema` is missing, the script creates a cached venv on its first run (`~/.cache/dataverse-as-code/venv-<hash>`, `%LOCALAPPDATA%\dataverse-as-code\…` on Windows; with `uv` when it's installed, else `venv` + `pip`), installs `scripts/requirements.txt` into it and runs again inside it. Every dataverse-as-code tool with the same requirements shares that venv, and the validation hook reuses it.
+
+To manage the dependencies yourself instead (offline machine, corporate mirror):
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r <plugin>/skills/dvac-metadata/scripts/requirements.txt
 ```
 

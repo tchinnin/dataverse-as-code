@@ -83,7 +83,8 @@ class TestRoundTrip(ImportCase):
 
     def test_import_into_empty_repo(self):
         code, out, _ = self.imp()
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 0)
+        self.assertIn("STATUS: changes-pending", out)
         self.assertIn(f"+ {CONTOSO}", out)
         self.assertIn(f"+ {LEGACY}", out)
         self.assertEqual(self.snapshot(), {}, "nothing is written without --write")
@@ -152,7 +153,8 @@ class TestAlign(ImportCase):
         self.edit(self.sol / CREATE_STEP, 'Name="Contoso.Crm.Plugins.OrderPreCreate: Create of prfx_crm_order"',
                   'Name="Order - default values"')
         code, out, _ = self.imp()
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 0)
+        self.assertIn("STATUS: changes-pending", out)
         self.assertIn("step Order - default values: plug-in class or message unknown", out)
 
     def test_two_packages_need_the_existing_files(self):
@@ -176,9 +178,10 @@ class TestErrors(ImportCase):
         self.assertEqual(self.snapshot(), {})
 
     def test_not_an_unpacked_solution(self):
-        code, _, err = run("solution", str(self.tmp), "--root", str(self.root))
+        code, out, _ = run("solution", str(self.tmp), "--root", str(self.root))
         self.assertEqual(code, 1)
-        self.assertIn("not an unpacked solution", err)
+        self.assertIn("STATUS: error", out)
+        self.assertIn("not an unpacked solution", out)
 
 
 if __name__ == "__main__":

@@ -12,30 +12,49 @@ description: >
 license: MIT
 user-invocable: true
 model: sonnet
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch
+allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<security role change request>"
 metadata:
   author: dataverse-as-code
-  version: "1.0.0"
+  version: "1.1.0"
 ---
+
+## Run
+
+Every step is one command; your only job is the YAML. `DV` means `python3 <base directory>/scripts/dv_security.py`, where `<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`). **Never search the disk for the script** — other copies may be stale. The script installs its own Python dependencies on its first run.
+
+1. Edit the role files under `dataverse/security/roles/` ([format](references/format.md)). To bring an existing role into the model, run `DV adopt dataverse/security "<role name>"` first — it writes the role's complete privilege set. Never write an existing role from memory.
+2. Run `DV plan dataverse/security`, adding `--env-url <url> --stage dev [--tenant <id>]` when the user gave the environment.
+3. Show the output to the user **unchanged**, then act on its `STATUS:` line:
+
+| STATUS | Do |
+|---|---|
+| `changes-pending` | Ask the user to confirm the change list — twice for each `DOUBLE CONFIRMATION` line (revokes). Then run the `NEXT` line exactly as printed. |
+| `no-changes` | Done. |
+| `blocked` | Fix the YAML ([blocked changes](references/plan-apply.md#blocked-changes)), back to step 2. |
+| `error` | Do what `FIX` says (often: ask the user something). Don't investigate further. |
+
+4. After `apply`: `applied` → done, remind the user to commit `dataverse/security/`. `stale-plan` → back to step 2. `error` → show `REASON` and `FIX`, stop.
+
+Not in this loop: `validate` (plan validates; in Claude Code the hook also validates on save), `doctor` (only to diagnose an `error`), `--json`, and any other read of Dataverse or ad-hoc script — the plan is the only read of the environment.
+
+**Large changes.** Delegate the YAML to the `dvac-security-planner` agent. Its prompt must hold `DV=<the absolute command>`, the request and the project conventions to apply. It returns the plan output; you run steps 3–4.
 
 ## Official skill
 
-`dataverse:dv-security` owns how Dataverse security works (roles, privileges, access levels, business units, teams, role assignment), and `dataverse:dv-solution` owns solutions. Load them before this skill. If the `dataverse` plugin is not installed, **strongly recommend the user install it** before proceeding. This skill adds a declarative model and the tooling that reconciles it. It does not restate the official procedures.
+`dataverse:dv-security` owns how Dataverse security works (roles, privileges, access levels, business units, teams, role assignment), and `dataverse:dv-solution` owns solutions. Load it only when you need Dataverse know-how the format doesn't give (procedures, error codes). If the `dataverse` plugin is not installed, **strongly recommend the user install it** before proceeding. This skill adds a declarative model and the tooling that reconciles it. It does not restate the official procedures.
 
 ## Best practices
 
 This skill defines the model format and the tooling, **not** how to design security. Role names, the split between roles, access levels and least-privilege reviews are the project's best practices. The validator only enforces platform rules (valid levels, existing tables and privileges, levels each privilege accepts) and tool rules (one file per role, unique names).
 
-Before writing the model, look for the project's own best practices (README, `AGENTS.md`, installed skills) and follow them. If there are none, work from the user's request and offer best-practice skills as an option — for example the `powerplatform-bestpractices` marketplace (`ppbp-*` skills).
+Apply the conventions already in your context (the project's instructions, loaded skills) — don't search for them. If there are none, follow the user's request and the format rules; best-practice skills such as the `powerplatform-bestpractices` marketplace (`ppbp-*`) can be added.
 
 ## Connection
 
 - **Azure CLI token only.** Sign in with `az login`, adding `--tenant <TENANT_ID>` when the account spans several tenants.
 - **The tool needs the dev environment URL and its declared stage (`dev`)**, plus the tenant when the account spans several. It takes them from one source: `--env-url/--stage/--tenant` flags, else the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, else a `<repo-root>/.env.dev` file. Details in [`references/prerequisites.md`](references/prerequisites.md#3-dev-environment-inputs).
 - If none is available, ask the user for the URL and tenant. Suggest a committed `.env.dev` as a convenient option (for example created by `ppbp-init`), never require it.
-- `dataverse:dv-connect` owns environment discovery and connection diagnostics.
-- Before any change, confirm the target URL and the active `az` account with the user.
 
 ## Repository layout
 
@@ -51,30 +70,13 @@ Before writing the model, look for the project's own best practices (README, `AG
 
 ## What this skill adds
 
-- **One declarative model.** The YAML files under `dataverse/security/` are the source of truth for the roles they describe.
-- **One tool**, `scripts/dv_security.py`, with four subcommands:
-
-| Subcommand | Touches the server | Purpose |
-|---|---|---|
-| `doctor [model-dir]` | read | Checks deps, the `az` session, the dev guard, the root business unit and that the solution is unmanaged |
-| `validate <dir\|file>` | no | Structural (JSON Schema) + semantic checks (unique role names, duplicates) |
-| `plan <model-dir> [--json]` | read | Diff → `+ create` / `~ update` / `+ grant` / `~ depth` / `- revoke` / `! blocked` / `? unmanaged` |
-| `apply <model-dir> --plan-file <f>` | write | Runs exactly the saved plan. Aborts if the plan is stale. Never deletes a role. |
-
-- **A PostToolUse hook** (Claude Code). It runs `validate` after every edit to a `*.dv.security.yaml` file. On GitHub Copilot, run `validate` explicitly.
-- **A planner agent**, `dvac-security-planner`, that runs the whole loop with a user confirmation gate.
-
-Run the script from the plugin's skill folder: `python3 <this-skill>/scripts/dv_security.py …`. Install its dependencies first with `pip install -r <this-skill>/scripts/requirements.txt`, inside a venv.
+A declarative model (`dataverse/security/roles/*.dv.security.yaml`), one tool (`scripts/dv_security.py`; every subcommand is in [`references/plan-apply.md`](references/plan-apply.md#subcommands)), a validation hook for Claude Code, and an optional planner agent for large YAML changes.
 
 ## Workflow: plan → confirm → apply
 
-Delegate role changes to the **`dvac-security-planner`** agent. It runs in two invocations:
+The loop is the one in [Run](#run). The user confirms the target (environment and solution) and the exact change list, and **twice** each `DOUBLE CONFIRMATION` line: every `- revoke`, because users holding the role lose that access.
 
-1. **Planning run.** The agent edits the YAML model, validates it, runs `plan`, and returns the target environment and solution, every create, update, grant, level change, revoke, blocked and unmanaged item, and the items that need double confirmation.
-2. **The main thread shows that plan to the user.** Ask for explicit confirmation of the environment and of the exact change list. Ask **twice** for every `- revoke` (users holding the role lose that access).
-3. **Apply run.** Re-invoke the agent with `approved: <plan file>`. It runs `apply`, then checks that the follow-up plan is empty.
-
-Never run `apply` without a plan the user has just seen. Never apply a plan that contains blocked items.
+Never run `apply` without a plan the user has just seen, and never edit the `NEXT` line.
 
 ## Model files
 
@@ -100,10 +102,6 @@ privileges:                       # other privileges, by name
 - **Revokes need double confirmation.** `- revoke` is the only reducing change the tool can make. The plan lists each one under `double_confirmation`.
 - **Never deletes a role.** Roles of the solution that the model doesn't describe are `? unmanaged`, reported only. Managed or non-customizable roles are `! blocked`: the tool only manages roles created in dev.
 
-## Common issue: stale plan
-
-`apply` recomputes the plan and aborts if it differs from the saved file (someone changed the model or the roles after `plan`). Re-run `plan` and get the user's confirmation again. See [`references/plan-apply.md`](references/plan-apply.md).
-
 ## Common issue: blocked privileges
 
 An unknown table or privilege, a verb the table doesn't have, or a level the privilege doesn't accept (organization-owned tables accept only `organization`) is blocked. Fix the YAML and re-plan. The full list is in [`references/plan-apply.md`](references/plan-apply.md#blocked-changes).
@@ -122,14 +120,14 @@ A role holding only the project's table privileges is often not enough to open a
 |---|---|
 | Editing roles in the maker portal, or with ad-hoc scripts | Describe the role in `dataverse/security/roles/` and run plan → apply |
 | Running `apply` without showing the plan, or reusing an old plan | Plan, show it, get confirmation (twice for revokes), then apply that plan file |
-| Listing only the privileges to add to an existing role | The file is the complete set — import the role's current privileges first, or everything else is revoked |
+| Listing only the privileges to add to an existing role, or writing it from memory | Run `adopt` first: it writes the complete set, so the plan starts empty |
 | Pointing the tool at UAT/prod by declaring it as `dev` | Only dev holds the unmanaged solution; promote through the ALM pipeline |
 | Deleting roles reported as unmanaged | Add them to the model, or remove them manually after a deliberate decision |
 | Editing `dv_security.py` or the JSON Schemas in a project | Edit only the model files; propose tooling changes upstream |
 
 ## Skill boundaries
 
-- Running a role change end to end → agent `dvac-security-planner`
+- Large role changes → agent `dvac-security-planner` (optional; apply stays in the main thread)
 - Tables, columns, Choices as code → `dvac-metadata`
 - Assigning roles to users or teams, business units, column security profiles → `dataverse:dv-security` (outside this model)
 - Solution creation, export, pull-to-repo → `dataverse:dv-solution`
