@@ -641,7 +641,7 @@ def root_business_unit(api):
 
 def role_privileges(api, role_id):
     """{privilege id: {name, depth}} held by a role. Record-filter privileges are left out."""
-    resp = api.get(f"roles({role_id})/Microsoft.Dynamics.CRM.RetrieveRolePrivilegesRole()") or {}
+    resp = api.get(f"RetrieveRolePrivilegesRole(RoleId={role_id})") or {}
     privs = {}
     for p in resp.get("RolePrivileges") or []:
         if (p.get("RecordFilterId") or EMPTY_GUID) != EMPTY_GUID:

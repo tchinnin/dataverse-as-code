@@ -278,7 +278,7 @@ class TestReadServer(unittest.TestCase):
             "roles?": [{"roleid": "R1", "name": "Clerk ", "description": None, "isinherited": 0,
                         "ismanaged": False, "iscustomizable": {"Value": True}}],
             "solutioncomponents": [{"objectid": "R1"}],
-            "roles(r1)/Microsoft.Dynamics.CRM.RetrieveRolePrivilegesRole()": {"RolePrivileges": [
+            "RetrieveRolePrivilegesRole(RoleId=r1)": {"RolePrivileges": [
                 {"PrivilegeId": "P1", "PrivilegeName": "prvReadAccount", "Depth": "Local"},
                 {"PrivilegeId": "P2", "PrivilegeName": "prvWriteAccount", "Depth": 3},
                 {"PrivilegeId": "P3", "PrivilegeName": "prvReadContact", "Depth": "Global",
@@ -442,7 +442,7 @@ class TestAdopt(unittest.TestCase):
         "businessunits": [{"businessunitid": "BU"}],
         "roles?": [{"roleid": "R1", "name": "Order Clerk", "description": "Clerks", "isinherited": 1,
                     "ismanaged": False, "iscustomizable": {"Value": True}}],
-        "roles(r1)/Microsoft.Dynamics.CRM.RetrieveRolePrivilegesRole()": {"RolePrivileges": [
+        "RetrieveRolePrivilegesRole(RoleId=r1)": {"RolePrivileges": [
             {"PrivilegeId": "P1", "PrivilegeName": "prvReadAccount", "Depth": "Global"},
             {"PrivilegeId": "P2", "PrivilegeName": "prvWriteAccount", "Depth": "Basic"},
             {"PrivilegeId": "P9", "PrivilegeName": "prvExportToExcel", "Depth": "Global"}]},
