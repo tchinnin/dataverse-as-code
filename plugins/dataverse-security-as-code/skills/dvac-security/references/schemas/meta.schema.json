@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataverse _meta.dv.security.yaml",
+  "description": "Entry point of a Dataverse security-as-code model: format version and target solution.",
+  "type": "object",
+  "required": ["version", "solution"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Format version of the model files.",
+      "enum": ["1.0"]
+    },
+    "solution": {
+      "type": "string",
+      "description": "Unique name of the target unmanaged solution in the dev environment.",
+      "pattern": "^[A-Za-z0-9_]+$"
+    }
+  }
+}

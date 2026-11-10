@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dataverse security role (*.dv.security.yaml under roles/)",
+  "description": "One security role of the root business unit and its complete privilege set. A privilege the file doesn't list is revoked by apply.",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "definitions": {
+    "level": {
+      "type": "string",
+      "description": "Access level: none, user (Basic), business_unit (Local), parent_child (Deep) or organization (Global).",
+      "enum": ["none", "user", "business_unit", "parent_child", "organization"]
+    }
+  },
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Role name — the role's identity in the root business unit (case-insensitive).",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "description": "Role description. Left out = not managed.",
+      "maxLength": 2000
+    },
+    "member_inheritance": {
+      "type": "string",
+      "description": "Member's privilege inheritance (isinherited): team_only or direct_and_team. Left out = not managed.",
+      "enum": ["team_only", "direct_and_team"]
+    },
+    "tables": {
+      "type": "object",
+      "description": "Table privileges, keyed by table logical name. A verb left out has no access.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "create": { "$ref": "#/definitions/level" },
+          "read": { "$ref": "#/definitions/level" },
+          "write": { "$ref": "#/definitions/level" },
+          "delete": { "$ref": "#/definitions/level" },
+          "append": { "$ref": "#/definitions/level" },
+          "append_to": { "$ref": "#/definitions/level" },
+          "assign": { "$ref": "#/definitions/level" },
+          "share": { "$ref": "#/definitions/level" }
+        }
+      }
+    },
+    "privileges": {
+      "type": "object",
+      "description": "Other privileges (miscellaneous, privacy-related…), keyed by privilege name.",
+      "propertyNames": { "pattern": "^prv[A-Za-z0-9_]+$" },
+      "additionalProperties": { "$ref": "#/definitions/level" }
+    }
+  }
+}

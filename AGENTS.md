@@ -66,7 +66,7 @@ marketplace: dataverse-as-code
             └── tests/                    ← required, with fixtures/ (a synthetic unpacked solution)
 ```
 
-One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. a future `dataverse-security-as-code`).
+One plugin = one model family = **one skill** (`dvac-<domain>`) + its planner agent + its hook. A plugin has no separate overview skill: the skill itself carries `## Connection` and `## Repository layout` for the files it owns. Add a second skill to a plugin only for a genuinely distinct concern of the same model; add a new plugin for a new model family (e.g. `dataverse-security-as-code` next to `dataverse-metadata-as-code`).
 
 ### Documentation skills
 
@@ -108,10 +108,10 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 - Python ≥ 3.9, dependencies in `scripts/requirements.txt`, offline tests in `tests/` (stdlib `unittest`).
 - Authenticate with the Azure CLI token (`az login`).
 - Take the environment (URL, stage, tenant) from **one** source, first match wins: `--env-url/--stage/--tenant` flags, then the `DATAVERSE_URL` / `ENVIRONMENT_STAGE` / `TENANT_ID` environment variables, then `<repo-root>/.env.<stage>`. URL and stage never mix sources; `--tenant` may override any source. `.env.<stage>` files are one option, never a requirement.
-- **Customization tools are dev-only** (`dv_metadata.py`, `dv_plugin.py`): refuse to run unless the stage is declared `dev`, the URL differs from `.env.uat`/`.env.prod` when those files exist, and the target solution exists and is unmanaged. UAT and prod receive customizations only through the managed solution.
+- **Customization tools are dev-only** (`dv_metadata.py`, `dv_plugin.py`, `dv_security.py`): refuse to run unless the stage is declared `dev`, the URL differs from `.env.uat`/`.env.prod` when those files exist, and the target solution exists and is unmanaged. UAT and prod receive customizations only through the managed solution.
 - **Data tools target a named stage** (`dv_data.py`): data is not solution-aware, so the tool runs against dev, UAT or prod. `--stage` is always required and never defaults; the source must declare that stage; the URL must differ from every other `.env.<stage>` file; the organization id is pinned in the plan and checked at apply. Outside `dev`, `apply` refuses unless the user — never the agent — typed the environment URL (`--confirm-url`) and, when the plan deletes rows, their count (`--confirm-deletes`).
 - There is never a flag to override a guard.
-- **Shared code is copied, not imported** — plugins install independently. The dev guard and Web API client in `dv_plugin.py`, and the Web API client in `dv_data.py`, must stay identical to `dv_metadata.py` (except the names allowed by each `TestSharedBlock`). Change every copy in the same commit.
+- **Shared code is copied, not imported** — plugins install independently. The dev guard and Web API client in `dv_plugin.py` and `dv_security.py`, and the Web API client in `dv_data.py`, must stay identical to `dv_metadata.py` (except the names allowed by each `TestSharedBlock`). Change every copy in the same commit.
 - Never destructive by default. Any delete the tool can perform must be listed in the skill's safety model and require double confirmation.
 - Tools never write GUIDs into model files unless the format has no other identity. `dv_data.py` identifies rows by alternate key and never writes the model.
 
@@ -123,7 +123,7 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 ### Compatibility
 
-The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) and the plan file format are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
+The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) and the plan file format are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
 
 ## Skill Authoring Standards
 
@@ -164,6 +164,7 @@ SemVer: **MAJOR** — breaking model format, path or CLI change, skill/agent rem
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins/tests
 python3 -m unittest discover -s plugins/dataverse-data-as-code/skills/dvac-data/tests
+python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-docs/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-docs/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-import/tests
