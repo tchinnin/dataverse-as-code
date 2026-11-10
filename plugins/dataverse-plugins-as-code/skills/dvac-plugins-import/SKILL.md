@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep
 argument-hint: "<unpacked solution folder>... [--write]"
 metadata:
   author: dataverse-as-code
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 ## Official skill
@@ -39,11 +39,12 @@ None. The tool reads the unpacked solution and the plug-in files only. To read r
 │   ├── PluginAssemblies/<name>-<id>/<name>.dll.data.xml
 │   ├── SdkMessageProcessingSteps/{<id>}.xml
 │   └── customapis/<name>/customapi.xml (+ request parameters, response properties)
-└── plugins/
-    └── <PluginName>/<PluginName>.dv.plugin.yaml   # output — existing file, or created here
+└── <project folder>/                          # wherever the plug-in project lives
+    ├── <PluginName>.csproj
+    └── <PluginName>.dv.plugin.yaml            # output — existing file, or created next to the .csproj
 ```
 
-An existing file is found wherever it is below `--root` (default: the repo root). A new file goes to `plugins/<Project>/<Project>.dv.plugin.yaml`, where `<Project>` is the package name without the publisher prefix, or the assembly name.
+An existing file is found wherever it is below `--root` (default: the repo root). A new file goes next to `<Project>.csproj` — the format's only location rule — found below `--root`; `<Project>` is the package name without the publisher prefix, or the assembly name. When no such `.csproj` exists (the project isn't in the repo yet), the import stops with `STATUS: error`; `--projects-dir <folder>` then creates the file in `<folder>/<Project>/`.
 
 ## What this skill adds
 

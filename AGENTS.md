@@ -135,7 +135,7 @@ Implementation pitfalls use the two-level pattern: a short `## Common issue: <to
 
 ### Compatibility
 
-The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, `plugins/<Name>/`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) the plan file format, and the `plan` exit codes and status footer are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
+The model file names (`*.dv.<domain>.yaml`), project paths (`dataverse/metadata/`, `dataverse/data/[<stage>/]`, `dataverse/security/roles/`, a `<Name>.dv.plugin.yaml` in the same folder as its `.csproj`), plan directories (`.dv-<domain>/`), the environment inputs (flags, variables, `.env.<stage>` keys) the plan file format, and the `plan` exit codes and status footer are a public contract with the projects that use them. Changing one is a MAJOR version bump with a migration note in the skill.
 
 ## Skill Authoring Standards
 

@@ -15,15 +15,15 @@ allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "3.0.0"
+  version: "3.0.1"
 ---
 
 ## Run
 
 Every step is one command; your only job is the YAML. `DV` means `python3 <base directory>/scripts/dv_plugin.py`, where `<base directory>` is the absolute path given when this skill was loaded (`Base directory for this skill: …`). **Never search the disk for the script** — other copies may be stale. The script installs its own Python dependencies on its first run.
 
-1. Edit `plugins/<PluginName>/<PluginName>.dv.plugin.yaml` ([format](references/format.md)). When the plug-in code changed, build it with the project's build command first.
-2. Run `DV plan plugins/<PluginName>`, adding `--env-url <url> --stage dev [--tenant <id>]` when the user gave the environment.
+1. Edit `<project>/<PluginName>.dv.plugin.yaml` next to the plug-in's `.csproj` ([format](references/format.md)). When the plug-in code changed, build it with the project's build command first.
+2. Run `DV plan <project folder>`, adding `--env-url <url> --stage dev [--tenant <id>]` when the user gave the environment.
 3. Show the output to the user **unchanged**, then act on its `STATUS:` line:
 
 | STATUS | Do |
@@ -35,7 +35,7 @@ Every step is one command; your only job is the YAML. `DV` means `python3 <base 
 
 4. After `apply`: `applied` → done, remind the user to commit the `.dv.plugin.yaml` (including the `id` the tool recorded). `stale-plan` → back to step 2. `error` → show `REASON` and `FIX`, stop.
 
-To adopt a project registered by hand, run `DV export --solution <s> --package <name> --out plugins/<PluginName>/<PluginName>.dv.plugin.yaml` first — never write existing registrations from memory.
+To adopt a project registered by hand, run `DV export --solution <s> --package <name> --out <project folder>/<PluginName>.dv.plugin.yaml` first — never write existing registrations from memory.
 
 Not in this loop: `validate` (plan validates; in Claude Code the hook also validates on save), `doctor` (only to diagnose an `error`), `--json`, and any other read of Dataverse or ad-hoc script — the plan is the only read of the environment.
 
@@ -69,18 +69,17 @@ Apply the conventions already in your context (the project's instructions, loade
 <repo-root>/
 ├── .env.dev                              # optional — one way to describe the dev environment
 ├── .dv-plugin/                           # plan files (gitignored)
-└── plugins/
-    └── <PluginName>/                     # the plug-in project (any layout; the YAML sits next to the .csproj)
+└── …/<PluginName>/                       # the plug-in project, anywhere in the repo
         ├── <PluginName>.csproj
         └── <PluginName>.dv.plugin.yaml   # REGISTRATIONS AS CODE — package, steps, images, Custom APIs
 ```
 
 - **`<PluginName>.dv.plugin.yaml` is the source of truth for what is registered.** Commit it with the code, including the `id` the tool records.
-- The tool only needs the `.csproj` folder and its build output; the rest of the project layout is up to the project.
+- **The only location rule: the `.dv.plugin.yaml` sits in the same folder as the plug-in's `.csproj`.** Where plug-in projects live is the project's choice; the tool takes any file or folder and only needs the `.csproj` folder and its build output.
 
 ## What this skill adds
 
-A declarative model (`plugins/<PluginName>/<PluginName>.dv.plugin.yaml`), one tool (`scripts/dv_plugin.py`; every subcommand is in [`references/plan-apply.md`](references/plan-apply.md#subcommands)), a validation hook for Claude Code, and an optional planner agent for large YAML changes.
+A declarative model (`<PluginName>.dv.plugin.yaml` next to each plug-in project), one tool (`scripts/dv_plugin.py`; every subcommand is in [`references/plan-apply.md`](references/plan-apply.md#subcommands)), a validation hook for Claude Code, and an optional planner agent for large YAML changes.
 
 ## Workflow: plan → confirm → apply
 

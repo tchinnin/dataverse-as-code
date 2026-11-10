@@ -5,7 +5,7 @@ dv_plugin.py — Dataverse plug-in registrations as code
 
 Reads ``*.dv.plugin.yaml`` files, one per plug-in project, next to its .csproj::
 
-    plugins/<PluginName>/<PluginName>.dv.plugin.yaml
+    <project folder>/<PluginName>.dv.plugin.yaml   # in the same folder as <PluginName>.csproj
 
 Each file describes a plug-in package or a plug-in assembly, its
 steps and step images, and the Custom APIs it implements. The tool reconciles
