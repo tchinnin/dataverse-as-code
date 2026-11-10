@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with your environments through plan → confirm → apply",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "plugins": [
     {
@@ -29,7 +29,7 @@
     },
     {
       "name": "dataverse-security-as-code",
-      "description": "Dataverse security as code: .dv.security.yaml security roles with their complete privilege set, plan/apply to dev (grants, level changes, revokes with double confirmation, never deletes a role), planner agent and validation hook.",
+      "description": "Dataverse security as code: .dv.security.yaml security roles with their complete privilege set, plan/apply to dev (grants, level changes, revokes with double confirmation, never deletes a role), planner agent, validation hook and functional role documentation (access matrix, Mermaid diagram per role).",
       "source": "./plugins/dataverse-security-as-code",
       "homepage": "https://github.com/tchinnin/dataverse-as-code"
     }

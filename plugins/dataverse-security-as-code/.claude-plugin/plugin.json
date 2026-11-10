@@ -1,7 +1,7 @@
 {
   "name": "dataverse-security-as-code",
-  "version": "1.1.0",
-  "description": "Dataverse security as code: security roles and their complete privilege set in .dv.security.yaml, Terraform-style plan/apply to the dev environment's unmanaged solution (grants, level changes, revokes with double confirmation, never deletes a role), planner agent and validation hook.",
+  "version": "1.2.0",
+  "description": "Dataverse security as code: security roles and their complete privilege set in .dv.security.yaml, Terraform-style plan/apply to the dev environment's unmanaged solution (grants, level changes, revokes with double confirmation, never deletes a role), planner agent, validation hook and functional role documentation with Mermaid diagrams.",
   "author": {
     "name": "Théophile Chin-nin",
     "url": "https://github.com/tchinnin"

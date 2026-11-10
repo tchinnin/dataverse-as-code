@@ -179,6 +179,7 @@ python3 -m unittest discover -s plugins/dataverse-data-as-code/skills/dvac-data/
 python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-docs/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-docs/tests
+python3 -m unittest discover -s plugins/dataverse-security-as-code/skills/dvac-security-docs/tests
 python3 -m unittest discover -s plugins/dataverse-metadata-as-code/skills/dvac-metadata-import/tests
 python3 -m unittest discover -s plugins/dataverse-plugins-as-code/skills/dvac-plugins-import/tests
 ```
