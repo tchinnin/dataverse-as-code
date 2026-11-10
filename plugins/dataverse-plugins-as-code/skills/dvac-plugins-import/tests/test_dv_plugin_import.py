@@ -21,8 +21,8 @@ import dv_plugin_import as imp  # noqa: E402
 dvp = imp.dvp
 SAMPLES = SKILL.parent / "dvac-plugins" / "references" / "samples"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "prfx_crm_Core"
-CONTOSO = "plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml"
-LEGACY = "plugins/Legacy.Plugins/Legacy.Plugins.dv.plugin.yaml"
+CONTOSO = "src/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml"
+LEGACY = "src/Legacy.Plugins/Legacy.Plugins.dv.plugin.yaml"
 STEPS = "SdkMessageProcessingSteps"
 CREATE_STEP = f"{STEPS}/{{0b0a0001-0000-4000-8000-000000000011}}.xml"
 
@@ -45,6 +45,9 @@ class ImportCase(unittest.TestCase):
         shutil.copytree(FIXTURE, self.sol)
         self.root = self.tmp / "repo"
         (self.root / ".git").mkdir(parents=True)
+        for project in ("Contoso.Crm.Plugins", "Legacy.Plugins", "Other"):  # the .csproj a new file goes next to
+            (self.root / "src" / project).mkdir(parents=True)
+            (self.root / "src" / project / f"{project}.csproj").write_text("<Project />", encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -52,7 +55,7 @@ class ImportCase(unittest.TestCase):
     def with_samples(self):
         for name, rel in (("Contoso.Crm.Plugins", CONTOSO), ("Legacy.Plugins", LEGACY)):
             target = self.root / rel
-            target.parent.mkdir(parents=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(SAMPLES / f"{name}.dv.plugin.yaml", target)
 
     def edit(self, path, old, new):
@@ -166,7 +169,7 @@ class TestAlign(ImportCase):
         self.with_samples()
         _, out, _ = self.imp()
         self.assertNotIn("cannot tell", out.split("custom API")[0])
-        self.assertIn("+ plugins/Other/Other.dv.plugin.yaml", out)
+        self.assertIn("+ src/Other/Other.dv.plugin.yaml", out)
 
 
 class TestErrors(ImportCase):
@@ -182,6 +185,40 @@ class TestErrors(ImportCase):
         self.assertEqual(code, 1)
         self.assertIn("STATUS: error", out)
         self.assertIn("not an unpacked solution", out)
+
+
+class TestNewFileLocation(ImportCase):
+    """The only location rule: a new file sits next to its project's .csproj."""
+
+    def test_new_file_goes_next_to_the_csproj(self):
+        shutil.rmtree(self.root / "src" / "Legacy.Plugins")
+        (self.root / "app" / "legacy").mkdir(parents=True)
+        (self.root / "app" / "legacy" / "Legacy.Plugins.csproj").write_text("<Project />", encoding="utf-8")
+        code, out, _ = self.imp()
+        self.assertEqual(code, 0, out)
+        self.assertIn("+ app/legacy/Legacy.Plugins.dv.plugin.yaml", out)
+
+    def test_no_csproj_stops_with_a_fix(self):
+        shutil.rmtree(self.root / "src" / "Legacy.Plugins")
+        code, out, _ = self.imp()
+        self.assertEqual(code, 1)
+        self.assertIn("STATUS: error", out)
+        self.assertIn("no Legacy.Plugins.csproj below", out)
+        self.assertIn("FIX: pass --projects-dir <folder>", out)
+
+    def test_projects_dir_for_a_project_not_created_yet(self):
+        shutil.rmtree(self.root / "src")
+        code, out, _ = self.imp("--projects-dir", "plugins", "--write")
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.root / "plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml").is_file())
+
+    def test_existing_files_are_found_wherever_they_are(self):
+        moved = self.root / "elsewhere" / "Contoso.Crm.Plugins.dv.plugin.yaml"
+        moved.parent.mkdir(parents=True)
+        shutil.copy(SAMPLES / "Contoso.Crm.Plugins.dv.plugin.yaml", moved)
+        code, out, _ = self.imp()
+        self.assertEqual(code, 0, out)
+        self.assertIn("= elsewhere/Contoso.Crm.Plugins.dv.plugin.yaml", out)
 
 
 if __name__ == "__main__":

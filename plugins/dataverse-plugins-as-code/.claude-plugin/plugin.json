@@ -1,6 +1,6 @@
 {
   "name": "dataverse-plugins-as-code",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Dataverse plug-in registrations as code: .dv.plugin.yaml (package or assembly, steps, images, Custom APIs), Terraform-style plan/apply to the dev environment with first upload via the Web API then pac plugin push, solution membership, planner agent, validation hook, offline documentation of the execution pipeline and Custom APIs (Mermaid), and an import from unpacked solutions.",
   "author": {
     "name": "Théophile Chin-nin",

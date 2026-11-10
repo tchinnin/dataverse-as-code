@@ -32,7 +32,7 @@ You turn a plug-in registration request into YAML (and code when needed) and a p
 
 1. Read `references/format.md` of the `dvac-plugins` skill (next to the script: `<script dir>/../references/format.md`).
 2. Make the smallest change in the `.dv.plugin.yaml` (and the C# code when the request needs it). When code changed, build the project with the command in your prompt or the project's conventions, so the plan sees the new content.
-3. Run `DV plan plugins/<PluginName>`.
+3. Run `DV plan <project folder>`.
 4. If `STATUS: blocked`, fix the YAML and go back to 3 — at most twice; then return as is.
 5. Return, and nothing else:
    - **Files changed:** each path with a one-line summary.

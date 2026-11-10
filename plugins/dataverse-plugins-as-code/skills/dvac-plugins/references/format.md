@@ -13,8 +13,8 @@ Start every file with the `yaml-language-server` directive, so VS Code validates
 
 ## File
 
-- **One file per plug-in project**, next to its `.csproj`: `plugins/<PluginName>/<PluginName>.dv.plugin.yaml`.
-- **`dv_plugin.py <command> plugins/`** reads every `*.dv.plugin.yaml` below the folder, skipping `bin/` and `obj/`.
+- **One file per plug-in project, in the same folder as its `.csproj`**: `<PluginName>.dv.plugin.yaml`. That is the only location rule; where the project folder lives is the project's choice.
+- **`dv_plugin.py <command> <folder>`** reads every `*.dv.plugin.yaml` below the folder, skipping `bin/` and `obj/`.
 - **The `package.name` / `assembly.name` must be unique** across files.
 - **Names are compared case-insensitively.** The YAML keeps the case Dataverse displays.
 

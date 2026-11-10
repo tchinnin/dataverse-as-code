@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import copy
 import difflib
+import os
 import re
 import shutil
 import sys
@@ -209,7 +210,9 @@ def existing_units(root: Path):
 # Alignment
 # --------------------------------------------------------------------------- #
 class Aligner:
-    def __init__(self, sols, existing):
+    def __init__(self, sols, existing, projects_dir=None, root=None):
+        self.projects_dir = Path(projects_dir) if projects_dir else None
+        self.root = Path(root or ".")
         self.sols = sols
         self.existing = existing
         self.skipped = []   # (where, reason)
@@ -364,7 +367,31 @@ class Aligner:
             return prev["file"], ordered
         project = unit["name"][len(pub["prefix"]) + 1:] if kind == "package" and \
             unit["name"].lower().startswith(pub["prefix"] + "_") else unit["name"]
-        return Path("plugins") / project / f"{project}{dvp.EXT}", ordered
+        return self.new_file(project), ordered
+
+    def new_file(self, project):
+        """A new file goes next to the project's .csproj — the only location rule of the format."""
+        name = f"{project}{dvp.EXT}"
+        if self.projects_dir is not None:
+            return self.projects_dir / project / name
+        found = find_csproj(self.root, project)
+        if len(found) == 1:
+            return found[0].parent / name
+        raise ImportError_(f"{'no' if not found else len(found)} {project}.csproj below {self.root} → "
+                           f"pass --projects-dir <folder> to create the file in <folder>/{project}/, "
+                           f"or create the plug-in project first")
+
+
+SKIP_DIRS = {"bin", "obj", "node_modules", ".git", ".venv"}
+
+
+def find_csproj(root: Path, project):
+    """Every <project>.csproj below root (case-insensitive), build and tool folders skipped."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d.lower() not in SKIP_DIRS)
+        found += [Path(dirpath) / f for f in filenames if f.lower() == f"{project.lower()}.csproj"]
+    return sorted(found)
 
 
 # Values the format applies when a field is left out.
@@ -431,13 +458,13 @@ def header_of(text):
     return "".join(lines)
 
 
-def build(sol_dirs, root: Path):
+def build(sol_dirs, root: Path, projects_dir=None):
     """Planned file changes: [(path, old_text or None, new_text)], plus the aligner (report)."""
     dvp._require_yaml()
     sols = [read_solution(Path(d)) for d in sol_dirs]
     merge_check(sols)
     existing = existing_units(root)
-    al = Aligner(sols, existing)
+    al = Aligner(sols, existing, projects_dir, root)
     if not al.units:
         raise ImportError_("no plug-in package or assembly in the solution(s)")
     al.resolve_steps()
@@ -517,9 +544,9 @@ def report(changes, al, root, show_diff=True):
 def cmd_solution(args):
     root = Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd())
     try:
-        changes, al = build(args.solutions, root)
+        changes, al = build(args.solutions, root, args.projects_dir)
     except ImportError_ as e:
-        dvp.print_status("error", reason=str(e), fix="fix what the reason names, then run the import again")
+        dvp.print_error(e)
         return 1
     pending = report(changes, al, root, show_diff=not args.no_diff)
     result = validate_result(changes)
@@ -554,7 +581,8 @@ def cmd_solution(args):
 def write_command(args):
     """The same import with --write, every path absolute."""
     return dvp.command_line(__file__, "solution", *[Path(d).resolve() for d in args.solutions],
-                            "--root", Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd()), "--write")
+                            "--root", Path(args.root).resolve() if args.root else dvp.find_repo_root(Path.cwd()),
+                            *(["--projects-dir", args.projects_dir] if args.projects_dir else []), "--write")
 
 
 def main(argv=None):
@@ -562,8 +590,9 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("solution", help="align the *.dv.plugin.yaml files with one or more unpacked solutions")
     p.add_argument("solutions", nargs="+", help="unpacked solution folder(s) (holding Other/Solution.xml)")
-    p.add_argument("--root", help="folder searched for *.dv.plugin.yaml files and where new ones go "
-                                  "under plugins/<Project>/ (default: the repo root)")
+    p.add_argument("--root", help="folder searched for *.dv.plugin.yaml files (default: the repo root)")
+    p.add_argument("--projects-dir", help="for a new file whose project has no .csproj yet: create it in "
+                                          "<dir>/<Project>/ (relative to --root). Default: next to <Project>.csproj")
     p.add_argument("--write", action="store_true", help="write the new and changed files")
     p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
     p.add_argument("--detailed-exitcode", action="store_true",
