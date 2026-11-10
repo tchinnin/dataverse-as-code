@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Bash, Grep
 argument-hint: "[path] [--out <file>]"
 metadata:
   author: dataverse-as-code
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 ## Official skill
@@ -34,8 +34,7 @@ None. The tool reads only the model files: no environment, no `az login`, no `pa
 
 ```
 <repo-root>/
-└── plugins/
-    └── <PluginName>/
+└── …/<PluginName>/                       # the plug-in project, anywhere in the repo (e.g. dataverse/plugins/)
         └── <PluginName>.dv.plugin.yaml   # input — the dvac-plugins model (read only)
 ```
 

@@ -6,18 +6,18 @@
   },
   "metadata": {
     "description": "Dataverse as code for Claude Code and GitHub Copilot: declarative YAML models reconciled with your environments through plan → confirm → apply",
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "plugins": [
     {
       "name": "dataverse-metadata-as-code",
-      "description": "Dataverse schema as code: .dv.metadata.yaml model, plan/apply to dev (never destructive), planner agent, validation hook, Mermaid ERD and import from unpacked solutions.",
+      "description": "Dataverse schema as code: .dv.metadata.yaml model, plan/apply to dev (never destructive), planner agent, validation hook, Mermaid ERD, import and compare with unpacked solutions.",
       "source": "./plugins/dataverse-metadata-as-code",
       "homepage": "https://github.com/tchinnin/dataverse-as-code"
     },
     {
       "name": "dataverse-plugins-as-code",
-      "description": "Dataverse plug-ins as code: .dv.plugin.yaml registrations (package, steps, images, Custom APIs), plan/apply to dev with pac plugin push, planner agent, validation hook, pipeline/Custom API documentation and import from unpacked solutions.",
+      "description": "Dataverse plug-ins as code: .dv.plugin.yaml registrations (package, steps, images, Custom APIs), plan/apply to dev with pac plugin push, planner agent, validation hook, pipeline/Custom API documentation, import and compare with unpacked solutions.",
       "source": "./plugins/dataverse-plugins-as-code",
       "homepage": "https://github.com/tchinnin/dataverse-as-code"
     },
@@ -29,7 +29,7 @@
     },
     {
       "name": "dataverse-security-as-code",
-      "description": "Dataverse security as code: .dv.security.yaml security roles with their complete privilege set, plan/apply to dev (grants, level changes, revokes with double confirmation, never deletes a role), planner agent, validation hook and functional role documentation (access matrix, Mermaid diagram per role).",
+      "description": "Dataverse security as code: .dv.security.yaml security roles with their complete privilege set, plan/apply to dev (grants, level changes, revokes with double confirmation, never deletes a role), planner agent, validation hook and functional role documentation (access matrix, Mermaid diagram per role), import and compare with unpacked solutions.",
       "source": "./plugins/dataverse-security-as-code",
       "homepage": "https://github.com/tchinnin/dataverse-as-code"
     }

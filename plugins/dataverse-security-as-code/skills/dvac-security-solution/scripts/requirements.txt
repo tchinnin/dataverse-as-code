@@ -1,0 +1,5 @@
+# dvac-security-solution — Python dependencies of dv_security_solution.py
+# The tool loads and validates the model with ../../dvac-security/scripts/dv_security.py,
+# so it needs the same packages. Install in a venv:  pip install -r <this file>
+pyyaml>=6.0
+jsonschema>=4.0

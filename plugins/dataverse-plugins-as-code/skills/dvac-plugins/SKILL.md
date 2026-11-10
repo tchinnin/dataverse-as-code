@@ -15,7 +15,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, WebSearch
 argument-hint: "<registration change request>"
 metadata:
   author: dataverse-as-code
-  version: "3.0.1"
+  version: "3.0.2"
 ---
 
 ## Run
@@ -114,7 +114,7 @@ custom_apis:
 ```
 
 - **A step's name is its identity.** It defaults to `<plugin>: <message> of <table>`, the format the Plugin Registration Tool uses. Renaming a step is a delete plus a create.
-- **The plan deletes steps the model doesn't list.** A step of the package that isn't in the YAML is planned as `- delete`. To adopt an existing project, run `export` first (or `dvac-plugins-import` from an unpacked solution) so that every live step is in the model.
+- **The plan deletes steps the model doesn't list.** A step of the package that isn't in the YAML is planned as `- delete`. To adopt an existing project, run `export` first (or `dvac-plugins-solution` `import` from an unpacked solution) so that every live step is in the model.
 - **`id` is the only field the tool writes.** `apply` records it after the first upload, and you commit it with the model.
 - **Optional attributes you leave out are not managed.** This covers `configuration`, `description` and `async_auto_delete`. The others have a managed default: `mode: sync`, `rank: 1`, `enabled: true`, an empty filter, and an image alias equal to its name.
 - Every key is listed in [`references/format.md`](references/format.md). Annotated samples are in [`references/samples/`](references/samples/).
@@ -177,7 +177,7 @@ Dataverse registers a stage-30 step (`CustomApi '<name>' implementation`) for ev
 
 - Large registration changes → agent `dvac-plugins-planner` (optional; apply stays in the main thread)
 - Documentation of the execution pipeline and the Custom APIs → `dvac-plugins-docs`
-- Registrations from an unpacked solution (adoption, realignment) → `dvac-plugins-import`
+- Registrations and unpacked solutions (import for adoption or realignment, compare for differences) → `dvac-plugins-solution`
 - Dataverse schema as code → `dvac-metadata`
 - Project scaffolding, plug-in code, step and Custom API design, versioning and build → the project's best practices
 - PAC CLI authentication, connection diagnostics → `dataverse:dv-connect`

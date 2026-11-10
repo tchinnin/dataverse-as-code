@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
 """
-dv_metadata_import.py — align the Dataverse metadata model with unpacked solutions
-==================================================================================
+dv_metadata_solution.py — the Dataverse metadata model and unpacked solutions
+=============================================================================
 
 Reads one or more solutions unpacked in the repo (``pac solution unpack`` /
-SolutionPackager layout: ``Other/Solution.xml``, ``Entities/*/Entity.xml``,
-``OptionSets/*.xml``, ``Other/Relationships/*.xml``) and regenerates the
-``*.dv.metadata.yaml`` model of the dvac-metadata skill from them::
+SolutionPackager XML layout: ``Other/Solution.xml``, ``Entities/*/Entity.xml``,
+``OptionSets/*.xml``, ``Other/Relationships/*.xml``) and, against the
+``*.dv.metadata.yaml`` model of the dvac-metadata skill::
 
-    solution <unpacked-dir>... [--model <dir>] [--tables <a,b>] [--write]
+    import  <unpacked-dir>... [--model <dir>] [--tables <a,b>] [--write]
+    compare <unpacked-dir>... [--model <dir>] [--tables <a,b>]
 
-Without ``--write`` nothing is written: the tool prints what would change —
-``+`` new file, ``~`` changed file (unified diff), ``=`` unchanged — then the
-model entries the solutions don't hold (kept) and the solution components the
-format cannot describe (skipped). ``--write`` writes the new and changed files.
+``import`` regenerates the model from the solutions. Without ``--write``
+nothing is written: it prints what would change — ``+`` new file, ``~``
+changed file (unified diff), ``=`` unchanged — then the model entries the
+solutions don't hold (kept) and the solution components the format cannot
+describe (skipped). ``--write`` writes the new and changed files. The model is
+never reduced, a file whose content does not change is not rewritten (its
+comments survive), and the result is validated before anything is written.
 
-The model is never reduced: tables, columns, keys, Choices and options that are
-only in the model are kept. A file whose content does not change is not
-rewritten, so its comments survive; a rewritten file loses its comments. The
-result is validated with the dvac-metadata validator before anything is written.
+``compare`` writes nothing. It lists what is only in the solution (+), only in
+the model (-), what differs field by field (~), and, for information, the
+values the solution holds that the model doesn't declare (·) and the
+components the format cannot describe (!). The solutions play the server of a
+plan: a difference means what it means in ``plan``.
 
-Offline: reads files only, never the environment.
+The unpacked solutions are read only: no subcommand writes in them, and a
+write target inside one is refused. Offline: reads files only, never the
+environment.
 
 Exit codes:
-    0  nothing to change, or --write succeeded
-    1  error, or the result would be an invalid model
-    2  changes pending (run again with --write)
+    0  done (import: nothing to change or --write succeeded; compare: computed)
+    1  error, refused, or the imported model would be invalid
+    2  --detailed-exitcode: files would change (import), or drift (compare)
 
 Do not edit this script per project — edit the model files.
 """
@@ -160,7 +167,9 @@ def read_solution(sol_dir: Path):
 class Builder:
     """Turns solution content into model documents, keeping what the solution lacks."""
 
-    def __init__(self, meta, existing_tables, existing_choices):
+    def __init__(self, meta, existing_tables, existing_choices, complete=False):
+        # complete=True (compare only): every value the solution holds, defaults included.
+        self.complete = complete
         self.meta = meta
         self.base = dvm.model_lcid(meta)
         self.languages = dvm.model_languages(meta)
@@ -218,20 +227,20 @@ class Builder:
         doc["label"] = self.label(texts(ent.find("LocalizedNames"), "LocalizedName"), old.get("label")) or key
         plural = self.label(texts(ent.find("LocalizedCollectionNames"), "LocalizedCollectionName"),
                             old.get("label_plural"))
-        if plural and ("label_plural" in old or (not old and plural != _plus_s(doc["label"]))):
+        if plural and (self.complete or "label_plural" in old or (not old and plural != _plus_s(doc["label"]))):
             doc["label_plural"] = plural
         desc = self.label(texts(ent.find("Descriptions"), "Description"), old.get("description"))
         if desc:
             doc["description"] = desc
         ownership = OWNERSHIP.get(ent.findtext("OwnershipTypeMask"), "user")
-        if ownership != "user" or "ownership" in old:
+        if ownership != "user" or "ownership" in old or self.complete:
             doc["ownership"] = ownership
         ttype = "activity" if ent.findtext("IsActivity") == "1" else \
             "elastic" if (ent.findtext("TableType") or "").lower() == "elastic" else "standard"
-        if ttype != "standard" or "table_type" in old:
+        if ttype != "standard" or "table_type" in old or self.complete:
             doc["table_type"] = ttype
         auditing = ent.findtext("IsAuditEnabled") == "1"
-        if auditing or "auditing" in old:
+        if auditing or "auditing" in old or self.complete:
             doc["auditing"] = auditing
 
         columns = {}
@@ -333,9 +342,9 @@ class Builder:
                 else:
                     col["result_type"] = "date"
             else:
-                if behavior != "userlocal" or "behavior" in old:
+                if behavior != "userlocal" or "behavior" in old or self.complete:
                     col["behavior"] = behavior
-                if fmt == "date" or "display" in old:
+                if fmt == "date" or "display" in old or self.complete:
                     col["display"] = "date" if fmt == "date" else "datetime"
 
         if ctype in ("choice", "multichoice"):
@@ -354,7 +363,7 @@ class Builder:
 
         if col["type"] != "formula":
             level = REQUIRED.get((attr.findtext("RequiredLevel") or "none").lower(), "none")
-            if "required_level" in old:
+            if "required_level" in old or self.complete:
                 col["required_level"] = level
             elif level == "required":
                 col["required"] = True
@@ -365,9 +374,9 @@ class Builder:
         if desc:
             col["description"] = desc
         for field, xml_tag in (("auditing", "IsAuditEnabled"),):
-            if field in old:
+            if field in old or self.complete:
                 col[field] = attr.findtext(xml_tag) == "1"
-        if "searchable" in old:
+        if "searchable" in old or self.complete:
             col["searchable"] = "ValidForAdvancedFind" in mask
 
         if ctype in ("text", "email", "url", "phone", "autonumber", "multiline"):
@@ -378,15 +387,16 @@ class Builder:
             col["format"] = attr.findtext("AutoNumberFormat")
         if ctype in ("integer", "decimal", "money"):
             lo, hi = _num(attr.findtext("MinValue")), _num(attr.findtext("MaxValue"))
-            if lo is not None and (ctype != "integer" or (lo, hi) != INT32 or "min" in old):
+            full = ctype != "integer" or (lo, hi) != INT32 or self.complete
+            if lo is not None and (full or "min" in old):
                 col["min"] = lo
-            if hi is not None and (ctype != "integer" or (lo, hi) != INT32 or "max" in old):
+            if hi is not None and (full or "max" in old):
                 col["max"] = hi
         if ctype == "decimal" and attr.findtext("Accuracy"):
             col["precision"] = _int(attr.findtext("Accuracy"))
         if ctype == "money":
             psource = PRECISION_SOURCE.get(attr.findtext("AccuracySource") or "2", "currency")
-            if psource != "currency" or "precision_source" in old:
+            if psource != "currency" or "precision_source" in old or self.complete:
                 col["precision_source"] = psource
             if psource == "fixed":
                 col["precision"] = _int(attr.findtext("Accuracy"))
@@ -398,7 +408,7 @@ class Builder:
             for field, value in (("true_label", "1"), ("false_label", "0")):
                 lab = self.label(opts.get(value) or {}, old.get(field))
                 standard = dvm.BOOL_LABELS[LCID_LOCALE.get(self.base, "en")][0 if value == "1" else 1]
-                if lab and (field in old or dvm.base_text(lab, self.base) != standard):
+                if lab and (field in old or self.complete or dvm.base_text(lab, self.base) != standard):
                     col[field] = lab
         if ctype == "choice" and col["type"] != "formula":
             default = _int(attr.findtext("AppDefaultValue"))
@@ -406,9 +416,9 @@ class Builder:
                 col["default"] = default
         if ctype in ("file", "image"):
             size = _int(attr.findtext("MaxValue"))
-            if size and (size != 32768 or "max_size_kb" in old or ctype == "image"):
+            if size and (size != 32768 or "max_size_kb" in old or ctype == "image" or self.complete):
                 col["max_size_kb"] = size
-        if ctype == "image" and ("PrimaryImage" in mask or "primary_image" in old):
+        if ctype == "image" and ("PrimaryImage" in mask or "primary_image" in old or self.complete):
             col["primary_image"] = "PrimaryImage" in mask
         if old:
             for field in OPTIONAL_COLUMN:
@@ -671,12 +681,38 @@ def report(changes, builder, model_dir, show_diff=True):
     return pending
 
 
-def cmd_solution(args):
+def solution_folder_of(path, sol_dirs):
+    """The input solution folder (one holding Other/Solution.xml) that holds ``path`` or is it."""
+    p = Path(path).resolve()
+    for d in sol_dirs:
+        d = Path(d).resolve()
+        if (d / "Other" / "Solution.xml").is_file() and (p == d or d in p.parents):
+            return d
+    return None
+
+
+def refuse_inside_solution(paths, sol_dirs):
+    """Unpacked solutions are read only: refuse any write target inside one. True when refused."""
+    for path in paths:
+        folder = solution_folder_of(path, sol_dirs)
+        if folder is not None:
+            dvm.print_status("refused", reason=f"{path} is inside the unpacked solution {folder} — "
+                                                "an unpacked solution is read only",
+                             fix="pass a --model folder outside every unpacked solution")
+            return True
+    return False
+
+
+def cmd_import(args):
     model_dir = Path(args.model)
+    if refuse_inside_solution([model_dir], args.solutions):
+        return 1
     try:
         changes, builder, _meta = build(args.solutions, model_dir, _csv(args.tables))
     except ImportError_ as e:
         dvm.print_status("error", reason=str(e), fix="fix what the reason names, then run the import again")
+        return 1
+    if refuse_inside_solution([c[0] for c in changes], args.solutions):
         return 1
     pending = report(changes, builder, model_dir, show_diff=not args.no_diff)
     result = validate_result(model_dir, changes)
@@ -696,7 +732,7 @@ def cmd_solution(args):
         return 0
     if not args.write:
         print(dvm.bold(f"\n{pending} file(s) to write — review, then run again with --write."))
-        dvm.print_status("changes-pending", next_cmd=write_command(args))
+        dvm.print_status("changes-pending", next_cmd=import_command(args, write=True))
         return 2 if args.detailed_exitcode else 0
     for path, old, new in changes:
         if old != new:
@@ -708,10 +744,188 @@ def cmd_solution(args):
     return 0
 
 
-def write_command(args):
-    """The same import with --write, every path absolute."""
-    return dvm.command_line(__file__, "solution", *[Path(d).resolve() for d in args.solutions],
-                            "--model", Path(args.model).resolve(), *(["--tables", args.tables] if args.tables else []), "--write")
+def import_command(args, write):
+    """The import of the same solutions, every path absolute."""
+    return dvm.command_line(__file__, "import", *[Path(d).resolve() for d in args.solutions],
+                            "--model", Path(args.model).resolve(),
+                            *(["--tables", args.tables] if args.tables else []), *(["--write"] if write else []))
+
+
+# --------------------------------------------------------------------------- #
+# Compare (writes nothing)
+# --------------------------------------------------------------------------- #
+class Comparison:
+    """Differences between the model and the solutions, in five sections."""
+
+    def __init__(self):
+        self.only_solution = []   # "+"
+        self.only_model = []      # "-"
+        self.differs = []         # "~"
+        self.undeclared = []      # "·" informational
+        self.skipped = []         # "!" informational
+
+    @property
+    def drift(self):
+        return len(self.only_solution) + len(self.only_model) + len(self.differs)
+
+
+def _show(value, base):
+    """Readable value: a label in one language is shown as its text."""
+    if isinstance(value, dict) and value and all(isinstance(k, int) for k in value):
+        return repr(value[base]) if list(value) == [base] else repr(value)
+    if isinstance(value, dict):
+        return dvm.cascade_label(value) if set(value) == set(dvm.CASCADE_ACTIONS) else repr(value)
+    return repr(value) if isinstance(value, str) else str(value)
+
+
+def _localized(meta, doc):
+    doc = copy.deepcopy(doc)
+    dvm.localize_model(meta, {}, [doc])
+    return doc
+
+
+def _skip_id(where):
+    for prefix in ("table ", "choice "):
+        if where.startswith(prefix):
+            return where[len(prefix):].lower()
+    return where.lower()
+
+
+def compare(sol_dirs, model_dir: Path, tables_filter=None):
+    """Compare the model with the solutions: the solutions play the server in dvm.diff, so a
+    difference means here what it means in a plan. Returns a Comparison."""
+    dvm._require_yaml()
+    if not (model_dir / dvm.META_FILE).is_file():
+        raise ImportError_(f"no {dvm.META_FILE} in {model_dir} — there is no model to compare (run import)")
+    result = dvm.validate_model(model_dir)
+    if result.errors:
+        raise ImportError_(f"the model is invalid ({len(result.errors)} error(s): {result.errors[0]}) — "
+                           "run validate with dvac-metadata")
+    meta, m_choices, m_tables = dvm.load_model(model_dir)
+    base = dvm.model_lcid(meta)
+    merged = merge_solutions([read_solution(Path(d)) for d in sol_dirs])
+    wanted = {t.lower() for t in tables_filter} if tables_filter else None
+    if wanted is not None:
+        m_choices = {}
+        m_tables = [t for t in m_tables if t["key"].lower() in wanted]
+    model_tables = {t["key"].lower(): t for t in m_tables}
+
+    full = Builder(meta, {}, {}, complete=True)   # every value of the solution
+    mini = Builder(meta, {}, {})                  # what an import would declare
+    model_keys = {k.lower(): k for k in merged["tables"] if full.owned(k)}
+    model_keys.update({k: t["key"] for k, t in model_tables.items()})
+    state = {"components": set(), "choices": {}, "tables": {}, "scope_choices": [], "scope_tables": []}
+    cmp = Comparison()
+
+    if wanted is None:
+        for name, spec in sorted(merged["choices"].items(), key=lambda kv: kv[0].lower()):
+            if not full.owned(name):
+                continue
+            doc, low = full.choice(name, spec), name.lower()
+            state["scope_choices"].append(low)
+            state["choices"][low] = {
+                "label": dvm.loc(doc["label"], base), "description": dvm.loc(doc.get("description"), base) or {},
+                "options": {o["value"]: {"label": dvm.loc(o["label"], base)} for o in doc["options"]}}
+            mdoc = next((c for n, c in m_choices.items() if n.lower() == low), None)
+            if mdoc is not None and "description" in mini.choice(name, spec) and "description" not in mdoc:
+                cmp.undeclared.append(f"choice {name}.description = {_show(state['choices'][low]['description'], base)}")
+
+    for key in sorted(merged["tables"], key=str.lower):
+        low = key.lower()
+        if not full.owned(key) or (wanted is not None and low not in wanted):
+            if not full.owned(key):
+                full.skipped.append((f"table {key}", "not prefixed with the publisher prefix (standard table)"))
+            continue
+        raw = merged["tables"][key]
+        doc = _localized(meta, full.table(key, raw, merged["relationships"], model_keys))
+        mdoc = _localized(meta, mini.table(key, raw, merged["relationships"], model_keys))
+        model_t = model_tables.get(low) or {}
+        model_cols = {c.lower(): spec for c, spec in (model_t.get("columns") or {}).items()}
+        primary = next((c.lower() for c, spec in doc["columns"].items() if spec.get("primary")), None)
+        if primary is None and model_t:
+            primary = next(c.lower() for c, spec in model_t["columns"].items() if (spec or {}).get("primary"))
+        table = {"label": doc["label"], "label_plural": doc.get("label_plural") or {},
+                 "description": doc.get("description") or {}, "ownership": doc["ownership"],
+                 "table_type": doc["table_type"], "auditing": doc["auditing"], "primary": primary or "",
+                 "columns": {}, "unmanaged_columns": [],
+                 "keys": {k["schema_name"].lower(): {"columns": sorted(c.lower() for c in k["columns"])}
+                          for k in doc.get("keys") or []}}
+        for cname, col in doc["columns"].items():
+            clow = cname.lower()
+            if clow not in model_cols:
+                table["unmanaged_columns"].append({"name": cname, "type": col.get("result_type", col["type"])})
+                continue
+            table["columns"][clow] = dvm.desired_column(col)
+            want = dvm.desired_column(model_cols[clow])
+            declared = dvm.desired_column(mdoc["columns"][cname])
+            for field, value in declared.items():
+                if field not in want:
+                    cmp.undeclared.append(f"{key}.{cname}.{field} = {_show(value, base)}")
+        if model_t:
+            for field in ("label_plural", "description"):
+                if field in mdoc and field not in model_t:
+                    cmp.undeclared.append(f"{key}.{field} = {_show(mdoc[field], base)}")
+        state["tables"][low] = table
+        state["scope_tables"].append(low)
+
+    skipped = {_skip_id(where) for where, _why in full.skipped}
+    cmp.skipped = [f"{where}: {why}" for where, why in full.skipped]
+    plan = dvm.diff({"meta": meta, "choices": m_choices, "tables": m_tables}, state)
+
+    created_tables = {a["name"].lower() for a in plan["actions"] if a["op"] == "create" and a["kind"] == "table"}
+    for a in plan["actions"]:
+        table = a.get("table")
+        name = f"{table}.{a['name']}" if table else a["name"]
+        if a["op"] == "create":
+            if (table or "").lower() in created_tables or name.lower() in skipped:
+                continue  # inside a table only in the model, or a component the format cannot read
+            cmp.only_model.append(f"{a['kind']} {name}")
+        else:
+            for field, (have, want) in a["changes"].items():
+                cmp.differs.append(f"{name}.{field}: model={_show(want, base)}  solution={_show(have, base)}")
+    for b in plan["blocked"]:
+        cmp.differs.append(f"{b['name']}.{b['field']}: model={_show(b['model'], base)}  "
+                           f"solution={_show(b['server'], base)}")
+    for u in plan["unmanaged"]:
+        if u["kind"] == "table" and u["name"] in skipped:
+            continue
+        cmp.only_solution.append(f"{u['kind']} {u['name']}" + (f" ({u['detail']})" if u.get("detail") else ""))
+    return cmp
+
+
+def print_comparison(cmp):
+    sections = (("Only in the solution", "+", cmp.only_solution, dvm.green),
+                ("Only in the model", "-", cmp.only_model, dvm.red),
+                ("Differs", "~", cmp.differs, dvm.yellow),
+                ("In the solution, not declared in the model (informational)", "·", cmp.undeclared, dvm.grey),
+                ("In the solution, not describable by the format (informational)", "!", cmp.skipped, dvm.grey))
+    for title, mark, items, colour in sections:
+        if items:
+            print(dvm.bold(f"{title}:"))
+            for item in items:
+                print(colour(f"  {mark} {item}"))
+            print()
+
+
+def cmd_compare(args):
+    model_dir = Path(args.model)
+    try:
+        cmp = compare(args.solutions, model_dir, _csv(args.tables))
+    except ImportError_ as e:
+        dvm.print_status("error", reason=str(e), fix="fix what the reason names, then run compare again")
+        return 1
+    print_comparison(cmp)
+    if not cmp.drift:
+        print(dvm.green("The model and the solution describe the same metadata."))
+        dvm.print_status("in-sync")
+        return 0
+    dvm.print_status(
+        "drift", reason=f"{cmp.drift} difference(s) between the model and the solution",
+        fix="to align the model on the solution, review the import below; to align the solution on the "
+            "model, plan and apply with dvac-metadata, then export and unpack again (dataverse:dv-solution) "
+            "— never edit the unpacked solution",
+        next_cmd=import_command(args, write=False))
+    return 2 if args.detailed_exitcode else 0
 
 
 def _csv(value):
@@ -719,19 +933,23 @@ def _csv(value):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="dv_metadata_import.py", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="dv_metadata_solution.py", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("solution", help="align the model with one or more unpacked solutions")
-    p.add_argument("solutions", nargs="+", help="unpacked solution folder(s) (holding Other/Solution.xml)")
-    p.add_argument("--model", default="dataverse/metadata", help="model dir (default: dataverse/metadata)")
-    p.add_argument("--tables", help="comma-separated table schema names to align (default: all)")
-    p.add_argument("--write", action="store_true", help="write the new and changed files")
-    p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
-    p.add_argument("--detailed-exitcode", action="store_true",
-                   help="CI: exit 2 when files would change (default: 0)")
+    for name, help_ in (("import", "align the model with one or more unpacked solutions"),
+                        ("compare", "compare the model with one or more unpacked solutions (writes nothing)")):
+        p = sub.add_parser(name, help=help_)
+        p.add_argument("solutions", nargs="+", help="unpacked solution folder(s) (holding Other/Solution.xml)")
+        p.add_argument("--model", default="dataverse/metadata", help="model dir (default: dataverse/metadata)")
+        p.add_argument("--tables", help="comma-separated table schema names (default: all, and the Choices)")
+        p.add_argument("--detailed-exitcode", action="store_true",
+                       help="CI: exit 2 when " + ("files would change" if name == "import" else
+                                                  "the model and the solution differ") + " (default: 0)")
+        if name == "import":
+            p.add_argument("--write", action="store_true", help="write the new and changed files")
+            p.add_argument("--no-diff", action="store_true", help="list the files without their diff")
     args = ap.parse_args(argv)
     dvm.ensure_deps(dvm.REQUIREMENTS)
-    return {"solution": cmd_solution}[args.cmd](args)
+    return {"import": cmd_import, "compare": cmd_compare}[args.cmd](args)
 
 
 if __name__ == "__main__":

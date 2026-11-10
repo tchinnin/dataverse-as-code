@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Role id="{5e1a0001-0000-4000-8000-000000000001}" name="Order Clerk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Description>Creates and follows up the orders of their business unit.</Description>
+  <IsInherited>1</IsInherited>
+  <RolePrivileges>
+    <RolePrivilege name="prvCreateprfx_crm_Order" level="Basic" />
+    <RolePrivilege name="prvReadprfx_crm_Order" level="Local" />
+    <RolePrivilege name="prvWriteprfx_crm_Order" level="Basic" />
+    <RolePrivilege name="prvAppendprfx_crm_Order" level="Basic" />
+    <RolePrivilege name="prvAppendToprfx_crm_Order" level="Basic" />
+    <RolePrivilege name="prvReadprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvAppendToprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvReadAccount" level="Global" />
+    <RolePrivilege name="prvExportToExcel" level="Global" />
+  </RolePrivileges>
+</Role>

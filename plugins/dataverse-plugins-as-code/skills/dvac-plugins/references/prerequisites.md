@@ -60,7 +60,7 @@ The tool refuses to run when:
 ## 6. Check
 
 ```sh
-python3 <plugin>/skills/dvac-plugins/scripts/dv_plugin.py doctor plugins/
+python3 <plugin>/skills/dvac-plugins/scripts/dv_plugin.py doctor dataverse/plugins/
 ```
 
 Every line must show ✓ before you run `plan`.

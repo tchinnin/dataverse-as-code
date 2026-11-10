@@ -1,8 +1,8 @@
 # yaml-language-server: $schema=../schemas/plugin.schema.json
 #
 # Sample — a plug-in package with steps, step images and a Custom API.
-# In a project it sits next to the .csproj:
-#   plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
+# In a project it sits next to the .csproj, wherever the project lives (example):
+#   dataverse/plugins/Contoso.Crm.Plugins/Contoso.Crm.Plugins.dv.plugin.yaml
 version: "1.0"
 publisher:
   prefix: prfx

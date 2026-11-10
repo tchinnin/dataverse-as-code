@@ -80,8 +80,8 @@ class DocCase(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.repo = self.tmp / "repo"
         (self.repo / ".git").mkdir(parents=True)
-        (self.repo / "plugins" / "X").mkdir(parents=True)
-        (self.repo / "plugins" / "X" / "X.dv.plugin.yaml").write_text(UNIT, encoding="utf-8")
+        (self.repo / "dataverse" / "plugins" / "X").mkdir(parents=True)
+        (self.repo / "dataverse" / "plugins" / "X" / "X.dv.plugin.yaml").write_text(UNIT, encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -142,7 +142,7 @@ class TestPipeline(DocCase):
         self.assertIn("No Custom API is described.", out)
 
     def test_invalid_model_is_refused(self):
-        f = self.repo / "plugins" / "X" / "X.dv.plugin.yaml"
+        f = self.repo / "dataverse" / "plugins" / "X" / "X.dv.plugin.yaml"
         f.write_text(UNIT.replace("stage: pre-validation", "stage: pre-validation, mode: async"), encoding="utf-8")
         code, out, err = run("doc", str(self.repo))
         self.assertEqual(code, 1)
@@ -167,8 +167,8 @@ class TestCustomApis(DocCase):
         self.assertIn("| `Out` | entity-collection | account | — | — |", sec)
 
     def test_source_paths_are_relative(self):
-        out = self.doc(path=self.repo / "plugins")
-        self.assertIn("| `plugins/X/X.dv.plugin.yaml` | package | prfx_X | 9 | 2 |", out)
+        out = self.doc(path=self.repo / "dataverse" / "plugins")
+        self.assertIn("| `dataverse/plugins/X/X.dv.plugin.yaml` | package | prfx_X | 9 | 2 |", out)
         self.assertNotIn(str(self.tmp), out)
 
 
@@ -178,7 +178,7 @@ class TestOutput(DocCase):
         self.assertEqual(run("doc", str(self.repo), "--out", str(target))[0], 0)
         self.assertTrue(target.read_text(encoding="utf-8").startswith(docs.GENERATED))
         self.assertEqual(run("doc", str(self.repo), "--out", str(target), "--check")[0], 0)
-        f = self.repo / "plugins" / "X" / "X.dv.plugin.yaml"
+        f = self.repo / "dataverse" / "plugins" / "X" / "X.dv.plugin.yaml"
         f.write_text(UNIT.replace("rank: 5", "rank: 6"), encoding="utf-8")
         code, _, err = run("doc", str(self.repo), "--out", str(target), "--check")
         self.assertEqual(code, 1)

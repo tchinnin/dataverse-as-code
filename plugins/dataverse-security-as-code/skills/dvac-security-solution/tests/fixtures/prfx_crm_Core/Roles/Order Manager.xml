@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Role id="{5e1a0002-0000-4000-8000-000000000002}" name="Order Manager" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsCustomizable>1</IsCustomizable>
+  <IsAutoAssigned>0</IsAutoAssigned>
+  <RolePrivileges>
+    <RolePrivilege name="prvCreateprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvReadprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvWriteprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvDeleteprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvAppendprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvAppendToprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvAssignprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvShareprfx_crm_Order" level="Global" />
+    <RolePrivilege name="prvCreateprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvReadprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvWriteprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvAppendprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvAppendToprfx_crm_Customer" level="Global" />
+    <RolePrivilege name="prvExportToExcel" level="Global" />
+    <RolePrivilege name="prvBulkDelete" level="Global" />
+  </RolePrivileges>
+</Role>
